@@ -29,6 +29,7 @@ from bot.integrations.github import (
     ReleaseTargetStore,
     WatcherClient,
     WatcherCursorStore,
+    WatcherError,
     WatcherEvent,
     WatcherSource,
     WatcherStream,
@@ -250,6 +251,9 @@ class GitHubFeedCog(commands.Cog):
         订阅正常结束（服务端主动关）也不打转，等 2 秒再连。
         """
         failures = 0
+        # 就绪之前 guild 缓存还是空的，这时候订阅只会拿到「拿不到 guild」，
+        # 往启动日志里刷几条毫无信息量的警告。
+        await self.bot.wait_until_ready()
         LOGGER.info("开始订阅监听服务：%s", self.bot.settings.watcher_base_url)
         while True:
             try:
@@ -257,9 +261,14 @@ class GitHubFeedCog(commands.Cog):
                 failures = 0
             except asyncio.CancelledError:
                 raise
+            except (asyncio.TimeoutError, aiohttp.ClientError, WatcherError) as exc:
+                # 超时、对端关闭、服务端拒绝订阅都属于这条长连接的**正常路径**。
+                # 打堆栈只会把日志淹掉，真正需要堆栈的异常反而看不见了。
+                failures += 1
+                LOGGER.warning("监听服务订阅中断（连续第 %d 次）：%s", failures, exc)
             except Exception:
                 failures += 1
-                LOGGER.exception("监听服务订阅中断（连续第 %d 次）", failures)
+                LOGGER.exception("监听服务订阅异常（连续第 %d 次）", failures)
 
             if failures == 0:
                 delay = FLOOR_RECONNECT_SECONDS
@@ -273,8 +282,9 @@ class GitHubFeedCog(commands.Cog):
         """一次订阅：先做区间检查，再进流；流结束或断开就返回，由循环决定重连。"""
         guild = self.bot.get_guild(self.bot.settings.guild_id)
         if guild is None:
-            LOGGER.warning("拿不到 guild %s，跳过本轮订阅", self.bot.settings.guild_id)
-            return
+            # 抛出去而不是直接返回：直接返回会被当成「正常结束」，于是每 2 秒重试一次、
+            # 每 2 秒刷一条警告。这是「暂时订阅不了」，该走退避。
+            raise WatcherError(f"机器人还不在 GUILD_ID={self.bot.settings.guild_id} 这个服务器里，暂不订阅")
 
         since = await self.cursor.get()
         # SSE 不会告诉我「游标已经被缓冲挤掉」，所以先用轮询面确认一次：

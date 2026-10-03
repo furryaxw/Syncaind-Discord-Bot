@@ -262,7 +262,8 @@ class GreetingCog(commands.Cog):
 * release 推送的**外部文本处理**：每条消息都带 `allowed_mentions=none`（release notes 里写 `@everyone` 也不会生效）、超长正文截断、空正文有说法、预发布有标记
 * **机器标记清理**：`<!-- sp-compat {…} -->` 这类 HTML 注释被清掉（含多行、多条、行内、CRLF）；**没闭合的注释留着不动**；删掉独占一行的标记时**不合并上下两行**（免得破掉列表）；整条只有标记时走「没有填写说明」
 * `/feed sync` 只推游标之后的、没新的时说清楚；权限不足时指名是哪个频道
-* 监听服务消费面：**SSE 帧解析**（`retry:` / `id:` / 多行 `data:` / 心跳注释 / CRLF / 尾帧无空行）、订阅头带 `Last-Event-ID` 续传、服务端 `retry` 被采用并夹上限、非 JSON 帧只跳过不致命
+* 监听服务消费面：**SSE 帧解析**（`retry:` / `id:` / 多行 `data:` / 心跳注释 / CRLF / 尾帧无空行 / **aiohttp 给的 bytes 行**）、订阅头带 `Last-Event-ID` 续传、服务端 `retry` 被采用并夹上限、非 JSON 帧只跳过不致命、**订阅按请求关掉总时限**（aiohttp 默认的 5 分钟总时限会把长连接掐断，而同一个 session 还在跑普通请求）
+* 日志层：访问日志里的 query string 被抹掉（OAuth 放在 query 里的一次性凭据不落盘），重复安装过滤器不会叠加
 * 监听服务语义：进流前的**区间检查**（被挤掉就转全量对账）、事件里没有 payload 时按链接里的 tag 回 GitHub 取正文、release 游标去重（重放不重推）、单条推失败不卡住整条订阅
 * access server 客户端：服务号换会话、错误码映射（**密钥不进错误文本**）、信封 RPC 的 `request_id` 关联、**跳过服务端推送**、`invalid_session` 自愈重试、超时、逐请求 Team 头
 * 有效节点拼接：`permissions`（系统作用域）∪ `assignments`（跨 Team），以及**读失败必须抛异常**（绝不退化成「他没有权限」）

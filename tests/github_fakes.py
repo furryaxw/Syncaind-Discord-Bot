@@ -191,15 +191,23 @@ class FakeSseResponse:
 
 
 class FakeSseSession:
-    """冒充 ``aiohttp.ClientSession``：只实现 ``get(url, headers=...)``。"""
+    """冒充 ``aiohttp.ClientSession``：只实现 ``get(url, headers=..., timeout=...)``。"""
 
     def __init__(self, response: FakeSseResponse) -> None:
         self._response = response
         self.calls: list[tuple[str, dict[str, str]]] = []
+        self.timeouts: list[Any] = []
         self.closed = False
 
-    def get(self, url: str, *, headers: dict[str, str] | None = None) -> FakeSseResponse:
+    def get(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout: Any | None = None,
+    ) -> FakeSseResponse:
         self.calls.append((url, dict(headers or {})))
+        self.timeouts.append(timeout)
         return self._response
 
 

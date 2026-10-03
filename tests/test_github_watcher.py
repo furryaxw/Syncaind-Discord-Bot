@@ -9,6 +9,8 @@ from __future__ import annotations
 import pytest
 
 from bot.integrations.github.watcher import (
+    SSE_CONNECT_TIMEOUT_SECONDS,
+    SSE_READ_TIMEOUT_SECONDS,
     WatcherClient,
     WatcherError,
     WatcherStream,
@@ -134,6 +136,45 @@ async def test_stream_resumes_with_last_event_id() -> None:
     assert headers["Last-Event-ID"] == "42"
     assert headers["Accept"] == "text/event-stream"
     assert headers["Authorization"] == "Bearer tok"
+
+
+async def test_stream_overrides_the_timeout_per_request() -> None:
+    """SSE 是长连接，不能吃 aiohttp 默认的「请求起 5 分钟」总时限。
+
+    总时限到点就掐断，和连接死没死无关 —— 那会让订阅每 5 分钟断一次。超时必须
+    **按请求**覆盖：同一个 session 也在跑 GitHub API 与区间检查的普通请求，
+    在 session 级把 total 关掉会让那些请求失去超时保护。
+    """
+    stream, session = make_stream([])
+
+    [item async for item in stream.events(0)]
+
+    timeout = session.timeouts[0]
+    assert timeout is not None, "订阅请求必须显式带上超时"
+    assert timeout.total is None, "总时限要关掉，否则订阅每 5 分钟被掐一次"
+    assert timeout.sock_connect == SSE_CONNECT_TIMEOUT_SECONDS
+    assert timeout.sock_read == SSE_READ_TIMEOUT_SECONDS, "读超时留着，半开的死连接才收得回来"
+
+
+async def test_bytes_lines_are_decoded_and_framed() -> None:
+    """aiohttp 的响应体是 bytes 行。
+
+    只认 str 不会报错，而是**静默失效**：空行判断对 bytes 恒为假，每一帧都被当成
+    非空行堆进缓冲，于是既切不出帧、也没有异常 —— 看起来就像服务端什么都没推。
+    """
+
+    async def source():
+        yield b": heartbeat 2026-10-03T11:20:25Z\n"
+        yield b"\n"
+        yield b"id: 3\n"
+        yield b'data: {"seq": 3}\n'
+        yield b"\n"
+
+    frames = [frame async for frame in iter_frames(source())]
+
+    assert len(frames) == 1
+    assert frames[0].event_id == "3"
+    assert frames[0].data == '{"seq": 3}'
 
 
 async def test_stream_omits_last_event_id_at_the_beginning() -> None:

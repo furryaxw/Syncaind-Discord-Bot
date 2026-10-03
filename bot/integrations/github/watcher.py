@@ -31,6 +31,12 @@ DEFAULT_RETRY_MS = 3000
 MAX_RETRY_MS = 60_000
 TAG_URL_MARKER = "/releases/tag/"
 
+# SSE 是长连接：aiohttp 的默认超时是「从请求开始算 5 分钟」的**总**时限，到点就掐断，
+# 和连接死没死无关 —— 于是订阅每 5 分钟必断一次，再退避重连，日志被堆栈淹没。
+# 所以订阅请求单独覆盖超时：连接阶段限时，读阶段交给服务端每 15 秒一次的注释心跳兜底。
+SSE_CONNECT_TIMEOUT_SECONDS = 15
+SSE_READ_TIMEOUT_SECONDS = 60
+
 
 def tag_from_url(url: str) -> str | None:
     """从 release 链接里取出 tag：release 的 ``html_url`` 一定以 ``/releases/tag/<tag>`` 结尾。
@@ -172,17 +178,26 @@ def parse_sse_frame(lines: Sequence[str]) -> SseFrame | None:
     return SseFrame(data="\n".join(data), event_id=event_id, event=event, retry_ms=retry_ms)
 
 
-async def iter_frames(lines: AsyncIterator[str]) -> AsyncIterator[SseFrame]:
-    """把逐行的响应体切成帧。流结束时若还有残留，也交出去（服务端可能没补尾空行）。"""
+async def iter_frames(lines: AsyncIterator[str | bytes]) -> AsyncIterator[SseFrame]:
+    """把逐行的响应体切成帧。流结束时若还有残留，也交出去（服务端可能没补尾空行）。
+
+    **两种行都要吃**：aiohttp 的 ``response.content`` 给的是 bytes（StreamReader 没有编码概念），
+    而假流给的是 str。只认一种的后果不是报错，而是**静默失效** —— 空行判断
+    ``bytes == ""`` 恒为假，于是每一帧都被当成非空行堆进缓冲，切不出帧、也不报错，
+    看起来就像服务端什么都没推。
+
+    按行解码是安全的：UTF-8 的续字节落在 0x80–0xBF，不会和行分隔符 0x0A 撞上。
+    """
     block: list[str] = []
     async for raw in lines:
-        if raw.strip() == "":
+        line = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw
+        if line.strip() == "":
             frame = parse_sse_frame(block)
             block = []
             if frame is not None:
                 yield frame
             continue
-        block.append(raw)
+        block.append(line)
     frame = parse_sse_frame(block)
     if frame is not None:
         yield frame
@@ -238,15 +253,22 @@ class WatcherStream:
         repo: str | None = None,
     ) -> AsyncIterator[WatcherEvent]:
         """连上去、逐条 yield；服务端断开就结束这个生成器，由调用方决定何时重连。"""
+        import aiohttp
+
         session = self._session
         owns_session = session is None
         if session is None:
-            import aiohttp
-
             session = aiohttp.ClientSession()
+        # 超时按请求覆盖，而不是配在 session 上：同一个 session 也在跑 GitHub API 与
+        # 区间检查的普通请求，把 total 关掉会让那边失去超时保护。
+        timeout = aiohttp.ClientTimeout(
+            total=None,
+            sock_connect=SSE_CONNECT_TIMEOUT_SECONDS,
+            sock_read=SSE_READ_TIMEOUT_SECONDS,
+        )
         try:
             url = self.stream_url(kind=kind, repo=repo)
-            async with session.get(url, headers=self.headers(since)) as response:
+            async with session.get(url, headers=self.headers(since), timeout=timeout) as response:
                 if getattr(response, "status", 200) != 200:
                     raise WatcherError(f"监听服务拒绝了订阅（HTTP {response.status}）", status=response.status)
                 async for frame in iter_frames(response.content):
