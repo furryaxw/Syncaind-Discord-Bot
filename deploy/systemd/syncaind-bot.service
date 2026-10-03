@@ -1,0 +1,44 @@
+# Syncaind Discord Bot —— systemd 常驻
+#
+# 安装（在 VPS 上，root 或 sudo）：
+#   1. 代码放到 /opt/syncaind-discord-bot
+#   2. python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+#   3. cp .env.example .env 并填写
+#   4. useradd --system --home /opt/syncaind-discord-bot syncaind
+#      chown -R syncaind:syncaind /opt/syncaind-discord-bot
+#   5. cp deploy/systemd/syncaind-bot.service /etc/systemd/system/
+#      systemctl daemon-reload && systemctl enable --now syncaind-bot
+#
+# 看日志：journalctl -u syncaind-bot -f
+
+[Unit]
+Description=Syncaind Discord Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=syncaind
+Group=syncaind
+WorkingDirectory=/opt/syncaind-discord-bot
+EnvironmentFile=/opt/syncaind-discord-bot/.env
+ExecStart=/opt/syncaind-discord-bot/.venv/bin/python -m bot
+
+Restart=on-failure
+RestartSec=5
+# 进程自己也会退避重试（bot/core/run_loop.py），这里再兜一层：崩溃就重启。
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=syncaind-bot
+
+# 默认只出站，不监听任何端口。启用 GitHub web flow 时才需要入站端点：
+# 在 .env 里设 WEB_PORT（例如 8080），它会绑在 127.0.0.1 上——对外交给
+# 隧道或反向代理，不需要给这个 unit 开任何特权（>1024 的端口不需要 CAP_NET_BIND_SERVICE）。
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/syncaind-discord-bot/data
+
+[Install]
+WantedBy=multi-user.target

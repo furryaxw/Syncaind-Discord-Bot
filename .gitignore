@@ -1,0 +1,18 @@
+# 敏感配置
+.env
+
+# 运行时数据（数据库与日志）
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.ruff_cache/
+.pytest_cache/
+
+# 编辑器
+.idea/
+.vscode/

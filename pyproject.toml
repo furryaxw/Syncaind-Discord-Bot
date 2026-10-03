@@ -1,0 +1,24 @@
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+extend-exclude = [".venv", "data"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "ASYNC", "RUF"]
+ignore = [
+    # 行长由 formatter 负责，lint 不再重复报
+    "E501",
+    # 本项目的注释、docstring 与日志文案是中文，全角标点是正常写法而不是「歧义字符」。
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["error::DeprecationWarning"]

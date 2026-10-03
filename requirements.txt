@@ -1,0 +1,5 @@
+discord.py==2.7.1
+aiosqlite==0.22.1
+pydantic-settings==2.15.0
+# 直接用到（GitHub 集成的 HTTP 客户端）；discord.py 本身也依赖它。
+aiohttp==3.14.3

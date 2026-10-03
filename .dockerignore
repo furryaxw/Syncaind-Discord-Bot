@@ -1,0 +1,12 @@
+# 镜像构建上下文只保留运行需要的东西。
+.git
+.github
+.venv
+venv
+data
+tests
+.env
+*.pyc
+__pycache__
+.ruff_cache
+.pytest_cache

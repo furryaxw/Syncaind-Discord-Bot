@@ -1,0 +1,32 @@
+# 在仓库根目录执行：
+#   docker compose -f deploy/docker/compose.yaml up -d --build
+#   docker compose -f deploy/docker/compose.yaml logs -f
+#
+# 只想用 systemd 的话，这个文件不需要动。
+
+services:
+  bot:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    image: syncaind-discord-bot:latest
+    container_name: syncaind-discord-bot
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    volumes:
+      - ../../data:/app/data
+    # 默认只出站连 Discord，不监听端口，所以这里不开 ports。
+    #
+    # 启用 GitHub web flow（网页授权）时才需要入站端点，那时要做两件事——
+    # 少做第二件是最容易踩的坑：
+    #   1. 在 .env 里设 WEB_PORT=8080，并取消下面 ports 的注释
+    #   2. **把 WEB_HOST 改成 0.0.0.0**：容器里的 127.0.0.1 只有容器自己看得见，
+    #      映射出去的端口会连不上它
+    # ports:
+    #   - "127.0.0.1:8080:8080"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
