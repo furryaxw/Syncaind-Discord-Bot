@@ -36,6 +36,8 @@ class FakeResponse:
         self._messages: list[dict[str, Any]] = []
         self._edits: list[dict[str, Any]] = []
         self._deferred = False
+        # 注入用：让 defer 抛（例如 Discord 的 10062「交互已过期」）。
+        self._defer_error: Exception | None = None
 
     def is_done(self) -> bool:
         return self._deferred
@@ -47,7 +49,26 @@ class FakeResponse:
         self._messages.append(kwargs)
 
     async def defer(self, **kwargs: Any) -> None:
+        if self._defer_error is not None:
+            raise self._defer_error
         self._deferred = True
+
+
+class FakeFollowup:
+    """对应 :class:`discord.Interaction.followup`（真实类型是 ``discord.Webhook``）。"""
+
+    def __init__(self) -> None:
+        self._sent: list[dict[str, Any]] = []
+        # 注入用：让 followup 也失败（交互过期时后续消息同样发不出去）。
+        self._error: Exception | None = None
+
+    async def send(self, content: Any = None, **kwargs: Any) -> None:
+        """真实签名是 ``send(content, *, ...)`` —— content 可以按位置传。"""
+        if self._error is not None:
+            raise self._error
+        if content is not None:
+            kwargs["content"] = content
+        self._sent.append(kwargs)
 
 
 class FakeRole:
@@ -479,6 +500,8 @@ class FakeInteraction:
         # 真实 Interaction 有 created_at；命令完成日志会用它算「从交互创建到完成」的耗时。
         self.created_at = datetime.now(timezone.utc)
         self.response = FakeResponse()
+        # 真实 Interaction 有 followup（defer 之后的回应都从这里走）。
+        self.followup = FakeFollowup()
         self.client = SimpleNamespace(
             user=SimpleNamespace(id=BOT_ID),
             tree=None,

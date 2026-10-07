@@ -53,6 +53,8 @@
   "keys.list.entry": "{member}　`{prefix}…`　{time}",
   "keys.list.title": "批次 {batch} 的发放记录",
   "keys.list.total": "共 **{count}** 条：",
+  "keys.pool_empty": "这一批已经没有可发的码了（名额已经还回去）。",
+  "keys.pool_unreachable": "取码失败：连不上 access server（名额已经还回去）。稍后再点一次；一直这样就让管理员看一眼 access server 的状态。",
   "keys.team_lookup_failed": "查不出批次 **{batch}** 属于哪个 Team（`{error}`）。多半是机器人没被授权 `team.system.keys.read`；不想加这个权限就直接指定：`team:<team_id>`。",
   "keys.team_unknown": "查不出批次 **{batch}** 属于哪个 Team（可能批次号不对）。请核对，或显式指定 `team:<team_id>`。",
   "modules.access_keys.description": "按批次发激活码：抽奖或先到先得，都从按钮进；码只走私信，发不出去就退回；参与前需先绑定 GitHub。",

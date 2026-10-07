@@ -6,17 +6,22 @@
 **所有 SMAS 操作都要求先绑定 GitHub 账号**（`/link github`）：SMAS 的身份就是 GitHub 数字 id，
 没绑就不知道该把这枚码记到谁头上。这条门禁在命令与按钮两条路上都拦。
 
-两条实现上的关键决定：
+三条实现上的关键决定：
 
 1. **按钮状态从消息 id 反查，不存在 view 里。** 持久化 view 在启动时只注册一个实例，
    点击时 discord.py 调用的是**那个实例**的回调 —— 把 drop 存进 view 就会永远用错 drop。
    消息 id 每次交互都带，按它反查最稳，重启也不怕。
-2. **按钮里的错误要自己回**：按钮不走命令树的错误处理器，抛出的 UserError 不会有人接，
+2. **响应先发，活后干。** 点击只有 3 秒窗口，而 `handle_button` 后面还要读库、抢名额、取码。
+   所以进来的第一件事就是 `defer`：晚于 3 秒的响应发不出去（Discord 回 10062），
+   用户看到的是「该交互失败」，而名额可能已经被扣掉。超时只记一条 WARNING 并放掉 ——
+   那是交互过期，不是故障，记成异常栈只会把真正的原因埋掉。
+3. **按钮里的错误要自己回**：按钮不走命令树的错误处理器，抛出的 UserError 不会有人接，
    交互就会一直转圈。
 
 发码链路每一步失败都有去处：资格 → 一人一批一枚 → **先到先得用一条 SQL 自增封顶抢名额**
 （并发点击不超发）→ `take` 原子取码 → 本地登记 → 私信 → **发不出去就 `release` 退码、
-撤登记、把名额还回去**。硬规则：**码只走私信，频道里永不出现完整码**。
+撤登记、把名额还回去**；**拿到名额之后的任何异常也都要还名额**（否则会出现「一枚没发出去、
+活动却显示已发完」）。硬规则：**码只走私信，频道里永不出现完整码**。
 """
 
 from __future__ import annotations
@@ -57,9 +62,35 @@ SWEEP_SECONDS = 30
 DEFAULT_MINUTES = 10
 MAX_KEYS = 50
 
+# Discord 的「这条交互已经不存在了」：令牌过期（点完超过 3 秒）时它就是这么回的。
+EXPIRED_INTERACTION = 10062
+
+# 一枚码的去向。失败的原因决定回执里写哪一句 —— 取码失败说成「私信发不出去」
+# 会把排查方向整个带偏（一个是 access server 连不上，一个是对方关了私信）。
+DELIVERED = "delivered"
+POOL_EMPTY = "pool_empty"
+POOL_UNREACHABLE = "pool_unreachable"
+CLAIM_CONFLICT = "claim_conflict"
+DM_FAILED = "dm_failed"
+
+FAILURE_TEXT = {
+    POOL_EMPTY: "keys.pool_empty",
+    POOL_UNREACHABLE: "keys.pool_unreachable",
+    CLAIM_CONFLICT: "keys.already_claimed",
+    DM_FAILED: "keys.dm_failed",
+}
+
 
 def _now_plus(minutes: int) -> str:
     return (datetime.fromisoformat(utcnow_iso()) + timedelta(minutes=minutes)).isoformat(timespec="seconds")
+
+
+def _age_ms(interaction: discord.Interaction) -> float:
+    """从交互创建到现在过了多少毫秒 —— Discord 那个 3 秒窗口按的就是这个数。"""
+    created = getattr(interaction, "created_at", None)
+    if created is None:
+        return -1.0
+    return (discord.utils.utcnow() - created).total_seconds() * 1000.0
 
 
 class AccessKeysView(discord.ui.View):
@@ -177,7 +208,7 @@ class AccessKeysCog(commands.Cog):
         delivered: list[int] = []
         for user_id in winners:
             user = await self._resolve_user(user_id)
-            if user is not None and await self._deliver_one(drop, user):
+            if user is not None and await self._deliver_one(drop, user) == DELIVERED:
                 delivered.append(user_id)
 
         await self.drops.set_status(drop.drop_id, DRAWN)
@@ -289,11 +320,28 @@ class AccessKeysCog(commands.Cog):
     # ------------------------------------------------------------------ 按钮
 
     async def handle_button(self, interaction: discord.Interaction) -> None:
-        """按钮入口：按**消息 id** 找回 drop，再按它的模式分派。
+        """按钮入口：**先把响应发出去**，再按消息 id 找回 drop 分派。
 
         按钮不走命令树的错误处理器，所以这里必须自己把 UserError 变成一句人话，
-        否则交互会一直转圈。
+        否则交互会一直转圈。第一件事是 ``defer``（见模块文档第 2 条）：3 秒之后再回就
+        永远回不出去了，用户只看到「该交互失败」，日志里却是一条和真正原因无关的异常栈。
+
+        每条点击都留一行 INFO 记「从交互创建起」的毫秒数 —— 它才是和那 3 秒窗口直接对应的
+        数字；没有它，「响应发晚了」和「干活太慢」在日志里长得一模一样。
         """
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except discord.HTTPException as exc:
+            elapsed = _age_ms(interaction)
+            user_id = getattr(interaction.user, "id", "?")
+            if getattr(exc, "code", None) == EXPIRED_INTERACTION:
+                # 交互过期：用户点完超过 3 秒了。这是环境/网络的结果，不是这里的故障。
+                LOGGER.warning("按钮交互已过期（从交互创建起 %.0f ms）：user=%s", elapsed, user_id)
+            else:
+                LOGGER.error("按钮交互响应失败（从交互创建起 %.0f ms）：user=%s %s", elapsed, user_id, exc)
+            return
+
+        drop: KeyDrop | None = None
         try:
             drop = await self.drops.get_by_message(interaction.message.id if interaction.message else 0)
             if drop is None:
@@ -308,8 +356,19 @@ class AccessKeysCog(commands.Cog):
         except UserError as exc:
             await self._respond_error(interaction, exc)
         except Exception:
-            LOGGER.exception("处理发码按钮失败：user=%s", getattr(interaction.user, "id", "?"))
+            LOGGER.exception(
+                "处理发码按钮失败：user=%s drop=%s",
+                getattr(interaction.user, "id", "?"),
+                drop.drop_id if drop is not None else "?",
+            )
             await self._respond_error(interaction, UserError("errors.unexpected"))
+        finally:
+            LOGGER.info(
+                "按钮交互处理完成（从交互创建起 %.0f ms）：user=%s drop=%s",
+                _age_ms(interaction),
+                getattr(interaction.user, "id", "?"),
+                drop.drop_id if drop is not None else "?",
+            )
 
     async def _enter(self, drop: KeyDrop, interaction: discord.Interaction) -> None:
         """抽奖报名。"""
@@ -327,7 +386,8 @@ class AccessKeysCog(commands.Cog):
             raise UserError("keys.drop.already_entered")
 
         count = await self.drops.entry_count(drop.drop_id)
-        await interaction.response.send_message(t(interaction, "keys.drop.entered", count=count), ephemeral=True)
+        # 响应已经在 handle_button 里 defer 过，这里只能走 followup。
+        await interaction.followup.send(t(interaction, "keys.drop.entered", count=count), ephemeral=True)
 
     async def _claim(self, drop: KeyDrop, interaction: discord.Interaction) -> None:
         """先到先得：抢名额 → 取码 → 私信。"""
@@ -347,15 +407,24 @@ class AccessKeysCog(commands.Cog):
             await self._close_if_done(drop)
             raise UserError("keys.drop.none_left")
 
-        await interaction.response.defer(ephemeral=True)
-        if await self._deliver_one(drop, interaction.user):
+        try:
+            outcome = await self._deliver_one(drop, interaction.user)
+        except BaseException:
+            # 名额已经扣下去，而这条路上没有任何人会替它还 —— 不还就会出现
+            # 「一枚码都没发出去、活动却显示已发完」。
+            await self.drops.give_back_slot(drop.drop_id)
+            raise
+
+        if outcome == DELIVERED:
             await interaction.edit_original_response(
                 embed=ok_embed(t(interaction, "keys.claimed.title"), t(interaction, "keys.drop.sent"))
             )
             await self._close_if_done(drop)
             return
+        if outcome == CLAIM_CONFLICT:
+            raise UserError("keys.already_claimed")
         await interaction.edit_original_response(
-            embed=info_embed(t(interaction, "keys.drop.not_sent_title"), t(interaction, "keys.dm_failed"))
+            embed=info_embed(t(interaction, "keys.drop.not_sent_title"), t(interaction, FAILURE_TEXT[outcome]))
         )
 
     # ------------------------------------------------------------------ /key close
@@ -484,18 +553,19 @@ class AccessKeysCog(commands.Cog):
 
     # ------------------------------------------------------------------ 发码与消息维护
 
-    async def _deliver_one(self, drop: KeyDrop, user: discord.abc.User) -> bool:
-        """给一个人发一枚码。任何一步失败都会把码/名额还原。"""
+    async def _deliver_one(self, drop: KeyDrop, user: discord.abc.User) -> str:
+        """给一个人发一枚码，返回结果（``DELIVERED`` 或没发出去的原因）。任何一步失败都会把码/名额还原。"""
         client = self._require_client()
         try:
             keys = await take_keys(client, team_id=drop.team_id, batch_id=drop.batch_id, count=1, recipient=user.id)
         except KeyPoolError as exc:
             LOGGER.warning("取码失败：batch=%s code=%s", drop.batch_id, exc.code)
             await self.drops.give_back_slot(drop.drop_id)
-            return False
+            return POOL_EMPTY if exc.unavailable else POOL_UNREACHABLE
         if not keys:
+            LOGGER.warning("取码为空：batch=%s", drop.batch_id)
             await self.drops.give_back_slot(drop.drop_id)
-            return False
+            return POOL_EMPTY
 
         key = keys[0]
         if not await self.deliveries.claim(
@@ -505,9 +575,10 @@ class AccessKeysCog(commands.Cog):
             key_id=key.key_id,
             key_prefix=key.key_prefix,
         ):
+            LOGGER.warning("同一批重复登记，已退码：drop=%s key=%s", drop.drop_id, key.key_id)
             await release_key(client, team_id=drop.team_id, key_id=key.key_id)
             await self.drops.give_back_slot(drop.drop_id)
-            return False
+            return CLAIM_CONFLICT
 
         try:
             locale = await self._locale(drop.guild_id)
@@ -517,10 +588,10 @@ class AccessKeysCog(commands.Cog):
             await self.deliveries.forget(drop.guild_id, batch_id=drop.batch_id, discord_user_id=user.id)
             await self.drops.give_back_slot(drop.drop_id)
             LOGGER.warning("私信失败，已退码：drop=%s key=%s", drop.drop_id, key.key_id)
-            return False
+            return DM_FAILED
 
         LOGGER.info("已发放激活码：drop=%s key=%s to=%s", drop.drop_id, key.key_id, user.id)
-        return True
+        return DELIVERED
 
     async def _resolve_user(self, user_id: int) -> discord.abc.User | None:
         user = self.bot.get_user(user_id)
@@ -566,8 +637,14 @@ class AccessKeysCog(commands.Cog):
                 await interaction.followup.send(text, ephemeral=True)
             else:
                 await interaction.response.send_message(text, ephemeral=True)
-        except discord.HTTPException:
-            LOGGER.exception("回传按钮错误提示失败")
+        except discord.HTTPException as exc:
+            # 交互过期时这句提示本来就没地方发；一行日志足够，再叠一段异常栈只会埋掉真因。
+            LOGGER.warning(
+                "回传按钮错误提示失败（%s）：user=%s %s",
+                error.key,
+                getattr(interaction.user, "id", "?"),
+                exc,
+            )
 
     # ------------------------------------------------------------------ 小工具
 

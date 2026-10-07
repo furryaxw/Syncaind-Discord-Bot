@@ -2,11 +2,14 @@
 
 这个模块每一步失败都有去处，测试就围绕这些去处写：
 **没绑 GitHub 不许做任何 SMAS 操作** / 一人一批一枚 / 先到先得封顶不超发 /
-私信失败必须退码并把名额还回去 / 开奖公告里不出现码。
+私信失败必须退码并把名额还回去 / 开奖公告里不出现码 /
+**响应先于干活发出去（3 秒窗口），响应失败一次也不许扣名额**。
 """
 
 from __future__ import annotations
 
+import logging
+from types import SimpleNamespace
 from typing import Any
 
 import discord
@@ -15,6 +18,7 @@ from discord import app_commands
 
 from bot.core.errors import UserError
 from bot.integrations.github import GitHubAccountStore
+from bot.integrations.smas import AccessError
 from bot.integrations.smas.key_store import DRAWN, FCFS, OPEN, RAFFLE, KeyDeliveryStore, KeyDropStore
 from bot.integrations.smas.keys import KEYS_NODE
 from tests.discord_fakes import (
@@ -124,8 +128,21 @@ def ephemeral_text(interaction: FakeInteraction) -> str:
 
 
 def followup_text(interaction: FakeInteraction) -> str:
-    """按钮里报错走的是纯文本 ``send_message``。"""
-    return ephemeral_text(interaction)
+    """按钮的回执：defer 之后成功/失败走 ``edit_original_response``，报错走 ``followup.send``。"""
+    if interaction.response._edits:
+        return ephemeral_text(interaction)
+    sent = interaction.followup._sent or interaction.response._messages
+    last = sent[-1]
+    embed = last.get("embed")
+    return (embed.description if embed is not None else last.get("content", "")) or ""
+
+
+def expired_interaction() -> discord.NotFound:
+    """Discord 对「这条交互已经不存在了」回的就是这个（code 10062）：点完超过 3 秒。"""
+    return discord.NotFound(
+        SimpleNamespace(status=404, reason="Not Found"),
+        {"message": "Unknown interaction", "code": 10062},
+    )
 
 
 # ---------------------------------------------------------------- 门禁：先绑 GitHub
@@ -292,6 +309,136 @@ async def test_a_failed_dm_returns_the_key_and_the_slot(settings: Any) -> None:
     assert deliveries == [], "登记要撤掉，否则他再也领不了这一批"
     assert latest is not None and latest.delivered == 0, "名额也要还回去"
     assert "退回去了" in ephemeral_text(interaction)
+
+
+async def test_a_click_defers_before_it_touches_anything(settings: Any, caplog: pytest.LogCaptureFixture) -> None:
+    """响应必须在 3 秒窗口里先发出去，而且日志要留下对应的那个数字。"""
+    bot = await setup_bot(settings)
+    try:
+        guild = build_guild()
+        member = guild.get_member(MODERATOR_ID)
+        await link_account(bot)
+        client = configured_client()
+        _drop, message = await open_drop(bot, guild, client, mode=FCFS, count=1)
+
+        interaction = interaction_for(guild, member, message=message)
+        with caplog.at_level(logging.INFO, logger="bot.access_keys"):
+            await wire(bot, client).handle_button(interaction)
+    finally:
+        await bot.db.close()
+
+    assert interaction.response._deferred is True, "进来的第一件事就是 defer"
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("从交互创建起" in text for text in messages), "要留下和那 3 秒窗口对应的数字"
+
+
+async def test_an_expired_click_takes_no_slot_and_logs_one_warning(
+    settings: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """点完超过 3 秒时 Discord 回 10062（Unknown interaction）。
+
+    那是交互在网络路上就过期了，不是这里的故障：**一个名额都不许扣**（响应失败之后
+    没有人能替用户把名额还回去），日志也只该是一条 WARNING —— 打两段异常栈只会把真因埋掉。
+    """
+    bot = await setup_bot(settings)
+    try:
+        guild = build_guild()
+        member = guild.get_member(MODERATOR_ID)
+        await link_account(bot)
+        client = configured_client()
+        drop, message = await open_drop(bot, guild, client, mode=FCFS, count=1)
+        interaction = interaction_for(guild, member, message=message)
+        interaction.response._defer_error = expired_interaction()
+
+        with caplog.at_level(logging.WARNING, logger="bot.access_keys"):
+            await wire(bot, client).handle_button(interaction)
+
+        latest = await KeyDropStore(bot.db).get(drop.drop_id)
+    finally:
+        await bot.db.close()
+
+    assert latest is not None and latest.delivered == 0, "过期的点击不能扣名额"
+    assert client.actions() == ["read"], "过期之后不该再去取码"
+    assert interaction.response._messages == []
+    assert interaction.followup._sent == [], "过期之后哪里都发不出去，别白试一次"
+    assert any("已过期" in record.getMessage() for record in caplog.records)
+    assert not any(record.exc_info for record in caplog.records), "过期不是异常，不该打栈"
+    assert [record.levelno for record in caplog.records if record.levelno >= logging.ERROR] == []
+
+
+async def test_an_unexpected_failure_after_the_slot_is_taken_gives_it_back(
+    settings: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """取名额之后的任何意外都要还名额 —— 否则会出现「一枚没发出去、活动却显示已发完」。"""
+    bot = await setup_bot(settings)
+    try:
+        guild = build_guild()
+        member = guild.get_member(MODERATOR_ID)
+        await link_account(bot)
+        client = configured_client()
+        drop, message = await open_drop(bot, guild, client, mode=FCFS, count=1)
+        cog = wire(bot, client)
+
+        async def explode(drop: Any, user: Any) -> str:
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(cog, "_deliver_one", explode)
+        interaction = interaction_for(guild, member, message=message)
+
+        await cog.handle_button(interaction)
+
+        latest = await KeyDropStore(bot.db).get(drop.drop_id)
+    finally:
+        await bot.db.close()
+
+    assert latest is not None and latest.delivered == 0, "名额必须还回去"
+    assert "出了点意外" in followup_text(interaction)
+
+
+async def test_a_broken_access_server_is_not_reported_as_a_dm_problem(settings: Any) -> None:
+    """取码失败与私信失败是两件事：说成「你关了私信」会把排查方向带偏。"""
+    bot = await setup_bot(settings)
+    try:
+        guild = build_guild()
+        member = guild.get_member(MODERATOR_ID)
+        await link_account(bot)
+        client = configured_client()
+        client.set("take", NODE, AccessError("access_unreachable", "连不上"))
+        drop, message = await open_drop(bot, guild, client, mode=FCFS, count=1)
+
+        interaction = interaction_for(guild, member, message=message)
+        await wire(bot, client).handle_button(interaction)
+
+        latest = await KeyDropStore(bot.db).get(drop.drop_id)
+    finally:
+        await bot.db.close()
+
+    text = followup_text(interaction)
+    assert "连不上 access server" in text
+    assert "私信" not in text
+    assert latest is not None and latest.delivered == 0, "取码失败也要把名额还回去"
+
+
+async def test_an_exhausted_batch_is_reported_as_empty(settings: Any) -> None:
+    """批次空了是状态不是故障，说法要不一样。"""
+    bot = await setup_bot(settings)
+    try:
+        guild = build_guild()
+        member = guild.get_member(MODERATOR_ID)
+        await link_account(bot)
+        client = configured_client()
+        client.set("take", NODE, AccessError("key_unavailable", "空了"))
+        drop, message = await open_drop(bot, guild, client, mode=FCFS, count=1)
+
+        interaction = interaction_for(guild, member, message=message)
+        await wire(bot, client).handle_button(interaction)
+
+        latest = await KeyDropStore(bot.db).get(drop.drop_id)
+    finally:
+        await bot.db.close()
+
+    assert "没有可发的码" in followup_text(interaction)
+    assert latest is not None and latest.delivered == 0
 
 
 async def test_fcfs_stops_at_the_key_count(settings: Any) -> None:

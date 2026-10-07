@@ -53,6 +53,8 @@
   "keys.list.entry": "{member}　`{prefix}…`　{time}",
   "keys.list.title": "Deliveries for batch {batch}",
   "keys.list.total": "**{count}** total:",
+  "keys.pool_empty": "This batch has no keys left to hand out (the slot was returned).",
+  "keys.pool_unreachable": "Could not take a key: the access server is unreachable (the slot was returned). Click again later; if it keeps happening, ask an admin to check the access server.",
   "keys.team_lookup_failed": "Could not tell which Team batch **{batch}** belongs to (`{error}`). Usually the bot lacks `team.system.keys.read`; if you would rather not grant it, pass `team:<team_id>`.",
   "keys.team_unknown": "Could not tell which Team batch **{batch}** belongs to (the batch id may be wrong). Check it, or pass `team:<team_id>`.",
   "modules.access_keys.description": "Hand out activation keys per batch: raffle or first come first served, both via buttons; keys go by DM only and a failed DM returns the key; participation requires a linked GitHub account.",
