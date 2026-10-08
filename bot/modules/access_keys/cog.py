@@ -230,6 +230,9 @@ class AccessKeysCog(commands.Cog):
         count=localized("How many keys to hand out", "commands.key.param_count"),
         mode=localized("Raffle (button signup) or first come first served", "commands.key.param_mode"),
         role=localized("Only members with this role may take part", "commands.key.param_role"),
+        deny_role=localized(
+            "Also exclude this role from this drop (on top of the deny list)", "commands.key.param_deny_role"
+        ),
         minutes=localized("Raffle closes after this many minutes", "commands.key.param_minutes"),
         team=localized("Team id; looked up from the batch when omitted", "commands.key.param_team"),
     )
@@ -247,6 +250,7 @@ class AccessKeysCog(commands.Cog):
         count: app_commands.Range[int, 1, MAX_KEYS],
         mode: app_commands.Choice[str],
         role: discord.Role | None = None,
+        deny_role: discord.Role | None = None,
         minutes: app_commands.Range[int, 1, 1440] | None = None,
         team: str | None = None,
     ) -> None:
@@ -256,6 +260,9 @@ class AccessKeysCog(commands.Cog):
         batch_id = batch.strip()
         if not batch_id:
             raise UserError("keys.bad_batch")
+        if role is not None and deny_role is not None and role.id == deny_role.id:
+            # 自相矛盾的门槛：既要求持有、又排除，等于谁都不能参与，多半是填错了。
+            raise UserError("keys.drop.deny_conflict")
 
         channel = interaction.channel
         if not isinstance(channel, discord.abc.Messageable):
@@ -283,12 +290,15 @@ class AccessKeysCog(commands.Cog):
             mode=mode.value,
             key_count=int(count),
             role_id=role.id if role else None,
+            deny_role_id=deny_role.id if deny_role else None,
             closes_at=closes_at,
             created_by=interaction.user.id,
         )
 
         t = self.bot.t
         guild_locale = await self._locale(guild.id)
+        # 括号里的「已排除」只在这次活动设了排除角色时才有内容；没设就是空串。
+        excluded = self.bot.i18n.t(guild_locale, "keys.drop.excluded", roles=deny_role.mention) if deny_role else ""
         message = await channel.send(
             embed=info_embed(
                 self.bot.i18n.t(
@@ -302,6 +312,7 @@ class AccessKeysCog(commands.Cog):
                     count=int(count),
                     role=role.mention if role else self.bot.i18n.t(guild_locale, "keys.drop.anyone"),
                     minutes=minutes or DEFAULT_MINUTES,
+                    excluded=excluded,
                 ),
             ),
             view=AccessKeysView(
@@ -376,6 +387,8 @@ class AccessKeysCog(commands.Cog):
         reason = await self._ineligible_reason(drop, interaction)
         if reason == "denied":
             raise UserError("keys.drop.role_denied")
+        if reason == "excluded":
+            raise UserError("keys.drop.role_excluded")
         if reason == "need_role":
             raise UserError("keys.drop.need_role", role=self._role_mention(drop, interaction))
         if await self.deliveries.already_claimed(
@@ -395,6 +408,8 @@ class AccessKeysCog(commands.Cog):
         reason = await self._ineligible_reason(drop, interaction)
         if reason == "denied":
             raise UserError("keys.drop.role_denied")
+        if reason == "excluded":
+            raise UserError("keys.drop.role_excluded")
         if reason == "need_role":
             raise UserError("keys.drop.need_role", role=self._role_mention(drop, interaction))
         if await self.deliveries.already_claimed(
@@ -651,11 +666,14 @@ class AccessKeysCog(commands.Cog):
     async def _ineligible_reason(self, drop: KeyDrop, interaction: discord.Interaction) -> str | None:
         """不能参与的原因；能参与返回 ``None``。
 
-        **黑名单先于白名单**：被排除的角色压过活动上的资格设置（先排除，再看资格）。
+        **两道黑名单都先于白名单**：服务器级名单与这次活动自己的排除角色都先排除，
+        再看活动上的资格设置。
         """
         role_ids = [getattr(item, "id", 0) for item in (getattr(interaction.user, "roles", None) or [])]
         if await self.denied.blocks(drop.guild_id, role_ids):
             return "denied"
+        if drop.deny_role_id is not None and drop.deny_role_id in role_ids:
+            return "excluded"
         if drop.role_id is not None and drop.role_id not in role_ids:
             return "need_role"
         return None

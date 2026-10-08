@@ -3,7 +3,8 @@
 这个模块每一步失败都有去处，测试就围绕这些去处写：
 **没绑 GitHub 不许做任何 SMAS 操作** / 一人一批一枚 / 先到先得封顶不超发 /
 私信失败必须退码并把名额还回去 / 开奖公告里不出现码 /
-**响应先于干活发出去（3 秒窗口），响应失败一次也不许扣名额**。
+**响应先于干活发出去（3 秒窗口），响应失败一次也不许扣名额** /
+**服务器黑名单与单次活动的排除角色都在资格之前生效**。
 """
 
 from __future__ import annotations
@@ -91,6 +92,7 @@ async def open_drop(
     mode: str = FCFS,
     count: int = 1,
     role: discord.Role | None = None,
+    deny_role: discord.Role | None = None,
 ) -> Any:
     """跑一次 /key drop，返回 (drop, 那条消息)。"""
     cog = wire(bot, client)
@@ -99,7 +101,9 @@ async def open_drop(
     await bot.guild_settings.update(GUILD_ID, locale="zh-CN")
     interaction = interaction_for(guild)
     choice = RAFFLE_CHOICE if mode == RAFFLE else FCFS_CHOICE
-    await run_command(bot, "key drop", interaction, batch=BATCH, count=count, mode=choice, role=role)
+    await run_command(
+        bot, "key drop", interaction, batch=BATCH, count=count, mode=choice, role=role, deny_role=deny_role
+    )
     # 编号现在是短随机串，所以按「本 guild 里开着的那一个」取，而不是猜一个数字。
     drop = next(iter(await cog.drops.open_in_guild(GUILD_ID)), None)
     message = guild.channels[0]._messages.get(drop.message_id) if drop is not None else None
@@ -683,3 +687,114 @@ async def test_the_deny_list_can_be_managed(settings: Any) -> None:
     assert after_add == {role.id}
     assert after_remove == set()
     assert role.mention in ephemeral_text(denied_interaction), "回执要带上当前名单"
+
+
+# ---------------------------------------------------------------- 指令级黑名单
+
+
+async def test_a_role_excluded_from_one_drop_only_loses_that_drop(settings: Any) -> None:
+    """`deny_role` 只对这一次活动生效：公开消息写出来，别人照常领，他换一个活动也能领。"""
+    bot = await setup_bot(settings)
+    try:
+        guild = build_guild()
+        member = guild.get_member(TARGET_ID)
+        excluded = member.top_role
+        await link_account(bot)
+        await link_account(bot, TARGET_ID)
+        client = configured_client()
+        _first, first_message = await open_drop(bot, guild, client, mode=FCFS, count=1, deny_role=excluded)
+        cog = wire(bot, client)
+
+        refused = interaction_for(guild, member, message=first_message)
+        await cog.handle_button(refused)
+        actions_after_refusal = list(client.actions())
+
+        await cog.handle_button(interaction_for(guild, guild.get_member(MODERATOR_ID), message=first_message))
+
+        _second, second_message = await open_drop(bot, guild, client, mode=FCFS, count=1)
+        await cog.handle_button(interaction_for(guild, member, message=second_message))
+    finally:
+        await bot.db.close()
+
+    assert "排除了" in followup_text(refused)
+    assert "take" not in actions_after_refusal, "被这次活动排除的人不该取码"
+    assert PLAINTEXT in guild.get_member(MODERATOR_ID)._dms[-1], "活动里的排除不影响别人"
+    assert PLAINTEXT in member._dms[-1], "换一个没排除他的活动照常能领"
+    assert "已排除" in first_message.embeds[0].description and excluded.mention in first_message.embeds[0].description
+    assert "已排除" not in second_message.embeds[0].description, "没设排除就不该冒出这一句"
+
+
+async def test_a_role_excluded_from_one_drop_also_blocks_raffle_signup(settings: Any) -> None:
+    bot = await setup_bot(settings)
+    try:
+        guild = build_guild()
+        member = guild.get_member(TARGET_ID)
+        await link_account(bot)
+        await link_account(bot, TARGET_ID)
+        client = configured_client()
+        drop, message = await open_drop(bot, guild, client, mode=RAFFLE, count=1, deny_role=member.top_role)
+        cog = wire(bot, client)
+
+        interaction = interaction_for(guild, member, message=message)
+        await cog.handle_button(interaction)
+
+        entries = await cog.drops.entries(drop.drop_id)
+    finally:
+        await bot.db.close()
+
+    assert "排除了" in followup_text(interaction)
+    assert entries == [], "被这次活动排除的人连报名都不该进名单"
+
+
+async def test_the_server_deny_list_and_the_drop_exclusion_are_two_layers(settings: Any) -> None:
+    """两层各拦各的：全局名单说黑名单，活动自己的排除说排除，都压在白名单之前。"""
+    bot = await setup_bot(settings)
+    try:
+        guild = build_guild()
+        moderator = guild.get_member(MODERATOR_ID)
+        target = guild.get_member(TARGET_ID)
+        await link_account(bot)
+        await link_account(bot, TARGET_ID)
+        client = configured_client()
+        _drop, message = await open_drop(bot, guild, client, mode=FCFS, count=1, deny_role=target.top_role)
+        cog = wire(bot, client)
+        await cog.denied.add(GUILD_ID, moderator.top_role.id, created_by=MODERATOR_ID)
+
+        blocked_by_list = interaction_for(guild, moderator, message=message)
+        await cog.handle_button(blocked_by_list)
+        blocked_by_drop = interaction_for(guild, target, message=message)
+        await cog.handle_button(blocked_by_drop)
+    finally:
+        await bot.db.close()
+
+    assert "黑名单" in followup_text(blocked_by_list)
+    assert "排除了" in followup_text(blocked_by_drop)
+    assert client.actions() == ["read"], "两边都被拦住，一枚都不该取"
+
+
+async def test_a_role_cannot_be_both_the_requirement_and_the_exclusion(settings: Any) -> None:
+    bot = await setup_bot(settings)
+    try:
+        guild = build_guild()
+        role = guild.get_member(MODERATOR_ID).top_role
+        await link_account(bot)
+        cog = wire(bot, configured_client())
+        interaction = interaction_for(guild)
+
+        with pytest.raises(UserError) as excinfo:
+            await run_command(
+                bot,
+                "key drop",
+                interaction,
+                batch=BATCH,
+                count=1,
+                mode=FCFS_CHOICE,
+                role=role,
+                deny_role=role,
+            )
+        drops = await cog.drops.open_in_guild(GUILD_ID)
+    finally:
+        await bot.db.close()
+
+    assert excinfo.value.key == "keys.drop.deny_conflict"
+    assert drops == [], "自相矛盾的活动不该建出来"

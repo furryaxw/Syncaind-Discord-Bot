@@ -34,7 +34,7 @@ async def test_migration_is_idempotent(settings) -> None:
     finally:
         await database.close()
 
-    assert first == (1,)
+    assert first == (1, 2)
     assert second == ()
 
 

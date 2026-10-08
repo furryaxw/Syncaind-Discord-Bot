@@ -118,6 +118,7 @@ class KeyDrop:
     mode: str
     key_count: int
     role_id: int | None
+    deny_role_id: int | None
     closes_at: str | None
     delivered: int
     status: str
@@ -144,6 +145,7 @@ class KeyDropStore:
         mode: str,
         key_count: int,
         role_id: int | None,
+        deny_role_id: int | None,
         closes_at: str | None,
         created_by: int,
     ) -> KeyDrop:
@@ -155,8 +157,8 @@ class KeyDropStore:
                     """
                     INSERT INTO key_drops
                         (drop_id, guild_id, batch_id, team_id, channel_id, mode, key_count, role_id,
-                         closes_at, status, created_by, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         deny_role_id, closes_at, status, created_by, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         drop_id,
@@ -167,6 +169,7 @@ class KeyDropStore:
                         mode,
                         key_count,
                         role_id,
+                        deny_role_id,
                         closes_at,
                         OPEN,
                         created_by,
@@ -263,6 +266,7 @@ class KeyDropStore:
 def _to_drop(row) -> KeyDrop:
     raw_message = row["message_id"]
     raw_role = row["role_id"]
+    raw_deny_role = row["deny_role_id"]
     raw_closes = row["closes_at"]
     return KeyDrop(
         drop_id=str(row["drop_id"]),
@@ -274,6 +278,7 @@ def _to_drop(row) -> KeyDrop:
         mode=str(row["mode"]),
         key_count=int(row["key_count"]),
         role_id=int(raw_role) if raw_role is not None else None,
+        deny_role_id=int(raw_deny_role) if raw_deny_role is not None else None,
         closes_at=str(raw_closes) if raw_closes is not None else None,
         delivered=int(row["delivered"]),
         status=str(row["status"]),
@@ -285,9 +290,8 @@ def _to_drop(row) -> KeyDrop:
 class KeyDeniedRoleStore:
     """发码黑名单：持有这些角色的人不能领取/参与。
 
-    **服务器级**规则（不是每次活动单独设）：黑名单压过活动上的资格设置 ——
-    先排除，再看资格。要对某一次活动单独排除某个角色，活动上的 `role` 白名单做不到，
-    所以这条规则单独存在一层。
+    **服务器级**规则：黑名单压过活动上的资格设置 —— 先排除，再看资格。
+    只对某一次活动生效的排除记在活动行上（``KeyDrop.deny_role_id``），这一层只管服务器级的名单。
     """
 
     def __init__(self, db: Database, *, logger: logging.Logger | None = None) -> None:

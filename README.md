@@ -85,7 +85,7 @@ Linux / macOS 上把 `.venv\Scripts\` 换成 `.venv/bin/` 即可。
 | `reaction_roles` | `/reactionrole add`、`remove`、`list`、`clear`                                                                                 | Manage Roles                                       |
 | `github_bridge`  | `/link github [method]`、`/link show [member]`、`/link remove [member]`                                                       | 无（看/改**别人**的绑定需要 Manage Roles）                     |
 | `github_feed`    | `/feed add <仓库> [目标]`、`/feed list`、`/feed remove <仓库>`、`/feed sync <仓库>`                                                    | Manage Server                                      |
-| `access_keys`    | `/key drop <批次> <数量> <模式> [角色] [分钟] [team]`、`/key close <编号>`、`/key list <批次>`、`/key deny-role <角色>`、`/key allow-role <角色>` | Manage Server（点按钮参与不需要）                            |
+| `access_keys`    | `/key drop <批次> <数量> <模式> [角色] [排除角色] [分钟] [team]`、`/key close <编号>`、`/key list <批次>`、`/key deny-role <角色>`、`/key allow-role <角色>` | Manage Server（点按钮参与不需要）                     |
 | `access_roles`   | `/access bind <节点> <角色>`、`/access unbind <节点> [角色]`、`/access list`、`/access sync [dry_run]`、`/access status <成员>`           | Manage Roles                                       |
 | `tools`          | `/serverinfo`、`/userinfo [member]`、`/permissions [member]`                                                                  | 无                                                  |
 
@@ -267,7 +267,7 @@ class GreetingCog(commands.Cog):
 * 监听服务语义：进流前的**区间检查**（被挤掉就转全量对账）、事件里没有 payload 时按链接里的 tag 回 GitHub 取正文、release 游标去重（重放不重推）、单条推失败不卡住整条订阅
 * access server 客户端：服务号换会话、错误码映射（**密钥不进错误文本**）、信封 RPC 的 `request_id` 关联、**跳过服务端推送**、`invalid_session` 自愈重试、超时、逐请求 Team 头
 * 有效节点拼接：`permissions`（系统作用域）∪ `assignments`（跨 Team），以及**读失败必须抛异常**（绝不退化成「他没有权限」）
-* 发码链路：**私信失败 → `release` 退码 + 撤登记 + 还名额**、并发抢名额不超发（一条 SQL 自增封顶）、**没绑 GitHub 一律拒绝**（命令与按钮两条路都拦）、一人一批一枚、开奖公告里不出现码、没人报名时一枚都不取、到点的活动会被后台开奖、**黑名单压过白名单**
+* 发码链路：**私信失败 → `release` 退码 + 撤登记 + 还名额**、并发抢名额不超发（一条 SQL 自增封顶）、**没绑 GitHub 一律拒绝**（命令与按钮两条路都拦）、一人一批一枚、开奖公告里不出现码、没人报名时一枚都不取、到点的活动会被后台开奖、**服务器黑名单与单次活动的排除角色都压过白名单**
 * 角色同步：**只动绑定表里出现过的角色**（别人手动发的角色永不被撤）、**读不到权限的人跳过而不是撤角色**（一次网络抖动不能把所有人角色撤光）、`dry_run` 只报告不动手、层级不够跳过并计数、不在服务器里的绑定对象跳过、来源要按 GitHub 数字 id 查（那张映射表就是桥梁）
 * 配置层：必填缺失、取值非法各自给出可读提示（不吐 pydantic 堆栈）；`.env.example` 与字段登记表必须覆盖每一个设置项
 * 加载器：能解析的依赖**不告警**（那一轮只是还没轮到），真的缺依赖才告警；`load_all` 顺序与字母序无关
@@ -375,8 +375,8 @@ WATCHER_API_TOKEN=<GHW_API_TOKEN>
 ### 发激活码（两种模式，都从按钮进）
 
 ```
-/key drop <批次> <数量> mode:抽奖      [role:角色] [minutes:10] [team:id]
-/key drop <批次> <数量> mode:先到先得  [role:角色] [team:id]
+/key drop <批次> <数量> mode:抽奖      [role:角色] [deny_role:角色] [minutes:10] [team:id]
+/key drop <批次> <数量> mode:先到先得  [role:角色] [deny_role:角色] [team:id]
 /key close <编号>     # 立刻结束（抽奖会立即开奖）
 /key list <批次>      # 看这批发给了谁（只有前缀）
 /key deny-role <角色> # 持有该角色的人不能领取，也不能参与抽奖
@@ -385,7 +385,7 @@ WATCHER_API_TOKEN=<GHW_API_TOKEN>
 
 * **抽奖**：发一条带「参与抽奖」按钮的消息 → 大家点 → 截止后随机抽 N 人 → 中奖者私信收到码，频道里只公布名单。
 * **先到先得**：发一条带「领取」按钮的消息 → 前 N 个点的人各得一枚；发满自动关掉按钮。
-* `role` 限定参与资格（不填=所有人），**每次由命令指定**；黑名单是服务器级规则，**压过**白名单。
+* `role` 限定参与资格（不填=所有人），**每次由命令指定**；`deny_role` 是**这一次活动自己**的排除角色（只对这次生效，会写在活动消息的「参与资格」那行）；`/key deny-role` 维护的是**服务器级**黑名单。两层都在资格之前生效 —— **先排除，再看资格**。
 
 设计上的几条：
 
