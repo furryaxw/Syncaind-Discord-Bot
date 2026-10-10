@@ -1,6 +1,6 @@
 # Syncaind Discord Bot
 
-用 `discord.py` 写的模块化 Discord 机器人：**服务器管理**（处罚、警告累计、案件记录、消息清理、频道与角色）、**服务器信息与权限诊断**、**GitHub 账号映射与 release 推送**，以及 **SMAS 激活码发放与权限节点同步**。
+用 `discord.py` 写的模块化 Discord 机器人：**服务器管理**（处罚、警告累计、案件记录、消息清理、频道与角色）、**服务器信息与权限诊断**、**GitHub 账号映射与 release 推送**、**SMAS 激活码发放与权限节点同步**，以及 **申请 / 收集 / 报名表单**。
 
 * 模块化：功能以 `bot/modules/<name>/` 下的自包含包形式挂载，可运行时启停与热重载
 * 命令：纯斜杠命令；界面语言按客户端语言在中文/英文之间自动切换
@@ -87,6 +87,7 @@ Linux / macOS 上把 `.venv\Scripts\` 换成 `.venv/bin/` 即可。
 | `github_feed`    | `/feed add <仓库> [目标]`、`/feed list`、`/feed remove <仓库>`、`/feed sync <仓库>`                                                    | Manage Server                                      |
 | `access_keys`    | `/key drop <批次> <数量> <模式> [角色] [排除角色] [分钟] [team]`、`/key close <编号>`、`/key list <批次>`、`/key deny-role <角色>`、`/key allow-role <角色>` | Manage Server（点按钮参与不需要）                     |
 | `access_roles`   | `/access bind <节点> <角色>`、`/access unbind <节点> [角色]`、`/access list`、`/access sync [dry_run]`、`/access status <成员>`           | Manage Roles                                       |
+| `forms`          | `/form post <表单> [频道] [名额] [分钟]`、`/form close <发布编号>`、`/form bind <表单> [审核频道] [审核员角色] [通知频道] [发放角色]`、`/form list`、`/form results <表单> [状态] [条数]`、`/form export <表单> [状态]` | Manage Server（填写与审核都走卡片上的按钮）                 |
 | `tools`          | `/serverinfo`、`/userinfo [member]`、`/permissions [member]`                                                                  | 无                                                  |
 
 命令名一律是英文且**不做本地化**（`/kick` 不会变成 `/踢出`）；描述与参数说明会按客户端语言切换。理由：命令名是肌肉记忆和外部脚本的锚点，而且本地化名称一旦不合 Discord 的命名规则会让整次同步失败。
@@ -100,6 +101,10 @@ Linux / macOS 上把 `.venv\Scripts\` 换成 `.venv/bin/` 即可。
 * **权限名**用 Discord 的权限位名（`send_messages`、`view_channel`、`manage_messages`…），多个用逗号或空格分隔。敲错名字会被明确拒绝，不会静默忽略。`/role permissions` 与频道覆盖**只动你点名的那几项**，没提到的权限保持原样。
 * **反应角色**绑定在消息上：成员点表情给角色、取消表情收角色。映射落库，重启后照样有效；角色被删掉时，那条规则会在下次有人点它时自动清理。
   由于点表情本身没有任何界面回应，机器人会给当事人**发一条私信**说明拿到/失去了哪个角色（给不上时也会说明原因）。私信的语言取服务器配置的语言，没配就用 `DEFAULT_LOCALE` —— **反应事件里拿不到对方的客户端语言**（那是交互才有的字段），所以想要中文提示就把 `.env` 里的 `DEFAULT_LOCALE` 改成 `zh-CN`。对方关了私信就静默跳过（记在日志里）。
+* **表单**（`forms`）有三种用途、共用同一套定义：**申请**走审核（通过 / 驳回 / 让他补充），**收集**提交即完成（可允许多份），**报名**提交即占名额、满了自动关。表单是**数据、而且不在仓库里**：放在数据目录的 `forms/`（即 `data/forms/<id>.json`，与数据库、附件同一个卷，不随部署被覆盖），一个文件一个表单，**文字也写在那个文件里**；`/module reload forms` 之后生效。审核频道、审核员角色、通知频道与发放角色用 `/form bind` 绑 —— 那些是服务器的身份，同样不该进代码。
+* **填写是多步弹窗**：一步最多 5 个空（Discord 的硬限制），每提交一步就落一次库，所以中途关掉客户端或机器人重启都不会丢；附件一提交就下载进 `data/attachments/`（Discord 给的下载链接会过期），过期草稿连附件一起清掉。
+* **审核在卡片上点按钮**，权限来自绑定的审核员角色（服务器主始终可以）。**通过后动作先做、状态后改**：发角色或通知失败时申请保持待审，再点一次就是重试，不会出现「记录说通过了、实际什么都没发生」。驳回与要求补充都要写理由并私信给申请人；结果用 `/form results` 看、`/form export` 导出 CSV（带 BOM，Excel 直接打得开；审核卡片只放摘要，长文看导出的完整内容）。
+* **加一种表单**：把一个 `<id>.json`（字段、用途、文字、通过后做什么）放到 `data/forms/` → `/module reload forms` → `/form bind <表单> …` 绑频道与角色 → `/form post <表单>` 把卡片发出去。文件名必须等于 `id`，未知键会直接报错。问题写长一点就用「问题当标题（≤45 字符）+ 补充说明当副标题（≤100 字符）」：超了同样会报错，不会被悄悄截断。
 
 ## 部署
 
@@ -289,7 +294,7 @@ bot/
 │   ├── i18n.py            # t(locale, key, **kw)，多来源合并
 │   ├── translator.py      # 命令描述/参数说明的本地化
 │   ├── database.py        # aiosqlite + 迁移 + 事务
-│   ├── migrations/        # 001_init.sql（完整 schema，一次建到位）
+│   ├── migrations/        # 001_init.sql（完整 schema，一次建到位）+ 之后的增量（编号从 1 起连续）
 │   ├── store.py           # 设置与模块状态读写
 │   ├── loader.py          # 模块扫描/加载/热重载/失败隔离/依赖顺序
 │   ├── framework.py       # /module 命令
@@ -311,7 +316,8 @@ bot/
     ├── moderation/  ├── cases/      ├── channels/
     ├── roles/       ├── reaction_roles/  ├── tools/
     ├── github_bridge/  ├── github_feed/
-    └── access_keys/    └── access_roles/
+    ├── access_keys/    ├── access_roles/
+    └── forms/          # 代码；（表单定义是数据，放 data/forms/，不进仓库）
 deploy/{systemd,docker}/
 tests/
 ```

@@ -35,6 +35,7 @@ class FakeResponse:
     def __init__(self) -> None:
         self._messages: list[dict[str, Any]] = []
         self._edits: list[dict[str, Any]] = []
+        self._modals: list[Any] = []
         self._deferred = False
         # 注入用：让 defer 抛（例如 Discord 的 10062「交互已过期」）。
         self._defer_error: Exception | None = None
@@ -51,6 +52,11 @@ class FakeResponse:
     async def defer(self, **kwargs: Any) -> None:
         if self._defer_error is not None:
             raise self._defer_error
+        self._deferred = True
+
+    async def send_modal(self, modal: Any, /) -> None:
+        """真实签名是 ``send_modal(modal, /)`` —— 弹窗本身就是这次响应，所以之后 is_done() 为真。"""
+        self._modals.append(modal)
         self._deferred = True
 
 
@@ -201,7 +207,12 @@ class FakeMember:
                 "Cannot send messages to this user",
             )
         self._calls.append("dm")
-        self._dms.append(str(content if content is not None else kwargs.get("embed", "")))
+        # 私信可能带 embed：记下它的正文，否则断言里只能看到一个对象地址。
+        if content is not None:
+            self._dms.append(str(content))
+        else:
+            embed = kwargs.get("embed")
+            self._dms.append(str(getattr(embed, "description", "")) or str(embed))
 
 
 class FakeMessage:

@@ -246,6 +246,64 @@ async def test_reload_picks_up_new_code(tmp_path: Path, monkeypatch, module_stat
     assert sys.modules["hotpkg.reloadable"].VERSION == "v2"
 
 
+async def test_reload_rereads_a_data_file_a_submodule_reads(
+    tmp_path: Path,
+    monkeypatch,
+    module_state_store: ModuleStateStore,
+) -> None:
+    """子模块在导入时读的数据文件，重载后也要重新读。
+
+    `forms` 的表单定义就是这种数据文件（`definitions/*.json` 由 `schema.py` 在导入时读取），
+    所以「改完 `/module reload` 生效」这条承诺依赖的正是这个行为：子模块必须被重新导入，
+    而不是从 `sys.modules` 里拿到缓存的旧对象。
+    """
+    package_dir = tmp_path / "datapkg"
+    module_dir = package_dir / "dataful"
+    module_dir.mkdir(parents=True)
+    (package_dir / "__init__.py").write_text("", encoding="utf-8")
+    (module_dir / "labels.json").write_text('{"label": "v1"}', encoding="utf-8")
+    (module_dir / "schema.py").write_text(
+        "import json\n"
+        "from pathlib import Path\n"
+        "LABEL = json.loads(Path(__file__).with_name('labels.json').read_text(encoding='utf-8'))['label']\n",
+        encoding="utf-8",
+    )
+    (module_dir / "cog.py").write_text(
+        "from discord.ext import commands\n"
+        "\n"
+        "\n"
+        "class DataCog(commands.Cog):\n"
+        "    def __init__(self, label: str) -> None:\n"
+        "        self.label = label\n",
+        encoding="utf-8",
+    )
+    (module_dir / "__init__.py").write_text(
+        "from bot.core.module import ModuleMeta\n"
+        "\n"
+        "from .cog import DataCog\n"
+        "from .schema import LABEL\n"
+        "\n"
+        "MODULE_META = ModuleMeta(id='dataful')\n"
+        "\n"
+        "\n"
+        "async def setup(bot) -> None:\n"
+        "    await bot.add_cog(DataCog(LABEL))\n",
+        encoding="utf-8",
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    bot = FakeBot()
+    loader = make_loader(bot, module_state_store, modules_dir=package_dir, package="datapkg")
+
+    assert (await loader.load("dataful")).status is ModuleStatus.LOADED
+    assert bot.cogs["DataCog"].label == "v1"
+
+    (module_dir / "labels.json").write_text('{"label": "v2"}', encoding="utf-8")
+
+    assert (await loader.reload("dataful")).status is ModuleStatus.LOADED
+    assert bot.cogs["DataCog"].label == "v2"
+
+
 async def test_reload_keeps_the_module_disabled(module_state_store: ModuleStateStore) -> None:
     bot = FakeBot()
     loader = make_loader(bot, module_state_store)

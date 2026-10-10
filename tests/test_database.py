@@ -6,9 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from bot.core.database import Database
+from bot.core.database import DEFAULT_MIGRATIONS_DIR, Database
 from bot.core.store import GuildSettingsStore, ModuleStateStore
 from tests.conftest import GUILD_ID
+
+
+def migration_versions() -> list[int]:
+    """磁盘上所有迁移的版本号。"""
+    return sorted(int(path.name.split("_", 1)[0]) for path in DEFAULT_MIGRATIONS_DIR.glob("*.sql"))
+
 
 EXPECTED_TABLES = {
     "guild_settings",
@@ -16,6 +22,10 @@ EXPECTED_TABLES = {
     "moderation_actions",
     "warnings",
     "schema_version",
+    "form_bindings",
+    "form_publications",
+    "form_drafts",
+    "form_submissions",
 }
 
 
@@ -34,8 +44,20 @@ async def test_migration_is_idempotent(settings) -> None:
     finally:
         await database.close()
 
-    assert first == (1, 2)
+    assert first == tuple(migration_versions())
     assert second == ()
+
+
+def test_migration_versions_are_dense() -> None:
+    """编号从 1 开始且连续。
+
+    迁移是按编号判断「有没有应用过」的，所以跳号或重号都会静默出错：重号会让后来那个
+    永远不被应用（库里有版本、没有表），跳号则让人以为中间缺了一步。
+    """
+    versions = migration_versions()
+
+    assert versions, "一个迁移都没发现，这条守卫自己失效了"
+    assert versions == list(range(1, len(versions) + 1)), f"迁移编号必须连续：{versions}"
 
 
 async def test_operations_before_connect_are_rejected(tmp_path: Path) -> None:

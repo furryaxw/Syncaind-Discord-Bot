@@ -45,6 +45,7 @@ KEY_PREFIXES = (
     "keys.",
     "access.",
     "smas.",
+    "forms.",
 )
 KEY_PATTERN = re.compile(r"""["']([A-Za-z_]+(?:\.[A-Za-z_]+)+)["']""")
 
@@ -73,6 +74,7 @@ def all_cog_types() -> tuple[type, ...]:
     from bot.modules.access_roles.cog import AccessRolesCog
     from bot.modules.cases.cog import CasesCog
     from bot.modules.channels.cog import ChannelsCog
+    from bot.modules.forms.cog import FormsCog
     from bot.modules.github_bridge.cog import GitHubBridgeCog
     from bot.modules.github_feed.cog import GitHubFeedCog
     from bot.modules.moderation.cog import ModerationCog as RealModerationCog
@@ -92,6 +94,7 @@ def all_cog_types() -> tuple[type, ...]:
         GitHubFeedCog,
         AccessKeysCog,
         AccessRolesCog,
+        FormsCog,
     )
 
 
