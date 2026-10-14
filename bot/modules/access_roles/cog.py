@@ -28,7 +28,16 @@ from discord.ext import commands
 from bot.core.checks import can_manage_role
 from bot.core.errors import UserError
 from bot.core.translator import localized
-from bot.core.ui import info_embed, ok_embed
+from bot.core.ui import (
+    FIELD_VALUE_LIMIT,
+    ConfirmView,
+    ask_confirmation,
+    clip_text,
+    info_embed,
+    ok_embed,
+    send_paged_lines,
+    warn_embed,
+)
 from bot.integrations.github import GitHubAccountStore
 from bot.integrations.smas import (
     AccessSource,
@@ -37,6 +46,7 @@ from bot.integrations.smas import (
     NodeRoleBindingStore,
     UnconfiguredAccessSource,
     desired_role_ids,
+    normalize_pattern,
 )
 
 LOGGER = logging.getLogger("bot.access_roles")
@@ -134,20 +144,55 @@ class AccessRolesCog(commands.Cog):
         guild = self._require_guild(interaction)
         await self._require_linked(interaction)
         try:
-            removed = await self.store.unbind(guild.id, pattern=node, role_id=role.id if role else None)
+            pattern = normalize_pattern(node)
         except NodePatternError as exc:
             raise UserError("access.bad_node", value=node, reason=str(exc)) from exc
-        if not removed:
-            raise UserError("access.unbind.none", node=node.strip().lower())
+
+        bindings = await self.store.all(guild.id)
+        targets = [
+            binding
+            for binding in bindings
+            if binding.node_pattern == pattern and (role is None or binding.role_id == role.id)
+        ]
+        if not targets:
+            raise UserError("access.unbind.none", node=pattern)
 
         t = self.bot.t
-        await interaction.response.send_message(
-            embed=ok_embed(
-                t(interaction, "access.unbind.title"),
-                t(interaction, "access.unbind.done", node=node.strip().lower(), count=removed),
-            ),
-            ephemeral=True,
+        confirmed = False
+        if role is None:
+            # 不传角色 = 把这个节点上的**全部**绑定一次删掉。删之前把要删的列出来。
+            confirmed = await ask_confirmation(
+                interaction,
+                embed=warn_embed(
+                    t(interaction, "access.unbind.confirm_title"),
+                    t(
+                        interaction,
+                        "access.unbind.confirm_body",
+                        node=pattern,
+                        count=len(targets),
+                        roles="、".join(f"<@&{binding.role_id}>" for binding in targets),
+                    ),
+                ),
+                view=ConfirmView(
+                    author_id=interaction.user.id,
+                    confirm_label=t(interaction, "common.confirm"),
+                    cancel_label=t(interaction, "common.cancel"),
+                    not_author_message=t(interaction, "common.not_your_button"),
+                ),
+            )
+            if not confirmed:
+                await interaction.edit_original_response(embed=info_embed(t(interaction, "common.aborted")), view=None)
+                return
+
+        removed = await self.store.unbind(guild.id, pattern=pattern, role_id=role.id if role else None)
+        embed = ok_embed(
+            t(interaction, "access.unbind.title"),
+            t(interaction, "access.unbind.done", node=pattern, count=removed),
         )
+        if confirmed:
+            await interaction.edit_original_response(embed=embed, view=None)
+        else:
+            await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # ------------------------------------------------------------------ /access list
 
@@ -182,8 +227,14 @@ class AccessRolesCog(commands.Cog):
             interaction,
             "access.list.configured" if self.configured else "smas.not_configured",
         )
-        await interaction.response.send_message(
-            embed=info_embed(title, "\n".join(lines) + "\n\n" + note), ephemeral=True
+        # 绑定多起来就会撞一条 embed 的 4096 上限 —— 这是唯一能读出绑定的命令，
+        # 它一报错，绑定就彻底不可读了。
+        await send_paged_lines(
+            interaction,
+            title=title,
+            lines=lines,
+            translate=self._translator_for(interaction),
+            footer=note,
         )
 
     # ------------------------------------------------------------------ /access sync
@@ -263,7 +314,10 @@ class AccessRolesCog(commands.Cog):
                 t(
                     interaction,
                     "access.status.node_list",
-                    nodes="、".join(f"`{node}`" for node in sorted(nodes.nodes)) or "—",
+                    nodes=clip_text(
+                        "、".join(f"`{node}`" for node in sorted(nodes.nodes)) or "—",
+                        FIELD_VALUE_LIMIT,
+                    ),
                 ),
             ]
         )
@@ -367,6 +421,11 @@ class AccessRolesCog(commands.Cog):
         )
         if denial:
             raise UserError(denial, role=role.name)
+
+    def _translator_for(self, interaction: discord.Interaction) -> Any:
+        """绑定好语言的查文案函数，交给分页组件取按钮与页脚文案。"""
+        t = self.bot.t
+        return lambda key, **kwargs: t(interaction, key, **kwargs)
 
     @staticmethod
     def _require_guild(interaction: discord.Interaction) -> discord.Guild:

@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -39,7 +40,7 @@ from discord.ext import commands
 from bot.core.clock import utcnow_iso
 from bot.core.errors import UserError
 from bot.core.translator import localized
-from bot.core.ui import info_embed, ok_embed
+from bot.core.ui import info_embed, ok_embed, send_paged_lines
 from bot.integrations.github import GitHubAccount, GitHubAccountStore
 from bot.integrations.smas import SYSTEM_TEAM_ID
 from bot.integrations.smas.key_store import (
@@ -61,6 +62,12 @@ TAKE_ID = "access_keys:take"
 SWEEP_SECONDS = 30
 DEFAULT_MINUTES = 10
 MAX_KEYS = 50
+DEFAULT_DROPS = 10
+MAX_DROPS = 25
+
+# 活动状态 → 文案键。数据库里只会有这几种（`CANCELLED` 还没有任何写入路径）；
+# 真出现别的值时原样显示，不让它变成 `keys.status.xxx` 这种给人看的键名。
+STATUS_KEYS = {OPEN: "keys.status.open", DRAWN: "keys.status.drawn", CLOSED: "keys.status.closed"}
 
 # Discord 的「这条交互已经不存在了」：令牌过期（点完超过 3 秒）时它就是这么回的。
 EXPIRED_INTERACTION = 10062
@@ -83,6 +90,15 @@ FAILURE_TEXT = {
 
 def _now_plus(minutes: int) -> str:
     return (datetime.fromisoformat(utcnow_iso()) + timedelta(minutes=minutes)).isoformat(timespec="seconds")
+
+
+def _short_time(value: str) -> str:
+    """把库里那串 ISO 时间缩成「月-日 时:分」。列表里放完整 ISO 只会把行撑长。"""
+    try:
+        moment = datetime.fromisoformat(value)
+    except ValueError:
+        return value
+    return moment.strftime("%m-%d %H:%M")
 
 
 def _age_ms(interaction: discord.Interaction) -> float:
@@ -551,7 +567,8 @@ class AccessKeysCog(commands.Cog):
                 embed=info_embed(title, t(interaction, "keys.list.empty")), ephemeral=True
             )
             return
-        lines = [
+        lines = [t(interaction, "keys.list.total", count=len(rows)), ""]
+        lines.extend(
             t(
                 interaction,
                 "keys.list.entry",
@@ -560,11 +577,117 @@ class AccessKeysCog(commands.Cog):
                 time=row.delivered_at,
             )
             for row in rows
-        ]
-        await interaction.response.send_message(
-            embed=info_embed(title, t(interaction, "keys.list.total", count=len(rows)) + "\n" + "\n".join(lines)),
-            ephemeral=True,
         )
+        await send_paged_lines(interaction, title=title, lines=lines, translate=self._translator_for(interaction))
+
+    # ------------------------------------------------------------------ /key drops 与报名名单
+
+    @key_group.command(
+        name="drops",
+        description=localized("List recent key drops with their ids", "commands.key.drops.description"),
+        extras={"permissions": ("manage_guild",)},
+    )
+    @app_commands.describe(limit=localized("How many to show", "commands.key.param_limit"))
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def key_drops(
+        self,
+        interaction: discord.Interaction,
+        limit: app_commands.Range[int, 1, MAX_DROPS] | None = None,
+    ) -> None:
+        """本服务器最近的发码活动。
+
+        活动编号只出现过一次（创建时那条 ephemeral 回复）。没有这个入口，回复一划走就再也敲不出
+        ``/key close <编号>``，也谈不上核对该发多少、发了多少。
+        """
+        guild = self._require_guild(interaction)
+        t = self.bot.t
+        drops = await self.drops.recent_in_guild(guild.id, limit=int(limit) if limit is not None else DEFAULT_DROPS)
+        title = t(interaction, "keys.drops.title", count=len(drops))
+        if not drops:
+            await interaction.response.send_message(
+                embed=info_embed(title, t(interaction, "keys.drops.empty")), ephemeral=True
+            )
+            return
+
+        entrants = await self.drops.entry_counts([drop.drop_id for drop in drops])
+        lines = [self._drop_line(interaction, guild, drop, entrants.get(drop.drop_id, 0)) for drop in drops]
+        await send_paged_lines(
+            interaction,
+            title=title,
+            lines=lines,
+            translate=self._translator_for(interaction),
+            footer=t(interaction, "keys.drops.hint"),
+        )
+
+    @key_group.command(
+        name="entries",
+        description=localized("List who signed up for a raffle", "commands.key.entries.description"),
+        extras={"permissions": ("manage_guild",)},
+    )
+    @app_commands.describe(drop_id=localized("Drop id", "commands.key.param_drop_id"))
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def key_entries(self, interaction: discord.Interaction, drop_id: str) -> None:
+        """抽奖的报名名单 —— 中奖者之外的人只存在于这张表里。"""
+        guild = self._require_guild(interaction)
+        normalized = drop_id.strip().upper()
+        drop = await self.drops.get(normalized)
+        if drop is None or drop.guild_id != guild.id:
+            raise UserError("keys.drop.not_found", drop=normalized)
+        if not drop.is_raffle:
+            # 先到先得没有报名表：谁领到了看 `/key list <批次>`。
+            raise UserError("keys.entries.not_raffle", drop=drop.drop_id, batch=drop.batch_id)
+
+        t = self.bot.t
+        entries = await self.drops.entry_list(drop.drop_id)
+        title = t(interaction, "keys.entries.title", drop=drop.drop_id, count=len(entries))
+        if not entries:
+            await interaction.response.send_message(
+                embed=info_embed(title, t(interaction, "keys.entries.empty")), ephemeral=True
+            )
+            return
+
+        lines = [
+            t(
+                interaction,
+                "keys.entries.entry",
+                index=index,
+                member=f"<@{entry.discord_user_id}>",
+                time=entry.entered_at,
+            )
+            for index, entry in enumerate(entries, start=1)
+        ]
+        await send_paged_lines(
+            interaction,
+            title=title,
+            lines=lines,
+            translate=self._translator_for(interaction),
+            footer=t(interaction, "keys.entries.hint"),
+        )
+
+    def _drop_line(self, interaction: discord.Interaction, guild: discord.Guild, drop: KeyDrop, entrants: int) -> str:
+        """活动列表里的一行：编号、模式、状态、批次、发放数，抽奖再加报名数与截止时间。"""
+        t = self.bot.t
+        status_key = STATUS_KEYS.get(drop.status)
+        parts = [
+            f"`{drop.drop_id}`",
+            t(interaction, f"commands.key.mode.{RAFFLE if drop.is_raffle else FCFS}"),
+            t(interaction, status_key) if status_key else drop.status,
+            t(interaction, "keys.drops.batch", batch=drop.batch_id),
+            t(interaction, "keys.drops.delivered", delivered=drop.delivered, count=drop.key_count),
+        ]
+        if drop.is_raffle:
+            parts.append(t(interaction, "keys.drops.entrants", count=entrants))
+        if drop.closes_at and drop.status == OPEN:
+            parts.append(t(interaction, "keys.drops.closes", when=_short_time(drop.closes_at)))
+        if drop.message_id is not None:
+            link = f"https://discord.com/channels/{guild.id}/{drop.channel_id}/{drop.message_id}"
+            parts.append(t(interaction, "keys.drops.card", url=link))
+        return "　".join(parts)
+
+    def _translator_for(self, interaction: discord.Interaction) -> Callable[..., str]:
+        """绑定好语言的查文案函数，交给分页组件取按钮与页脚文案。"""
+        t = self.bot.t
+        return lambda key, **kwargs: t(interaction, key, **kwargs)
 
     # ------------------------------------------------------------------ 发码与消息维护
 

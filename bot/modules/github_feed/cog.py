@@ -18,7 +18,7 @@ from discord.ext import commands
 
 from bot.core.errors import UserError
 from bot.core.translator import localized
-from bot.core.ui import info_embed, ok_embed
+from bot.core.ui import info_embed, ok_embed, send_paged_lines
 from bot.integrations.github import (
     AiohttpTransport,
     GitHubReleaseSource,
@@ -166,10 +166,18 @@ class GitHubFeedCog(commands.Cog):
         ]
         lines.append("")
         lines.append(await self._watch_status(interaction))
-        await interaction.response.send_message(
-            embed=info_embed(t(interaction, "feed.list.title"), "\n".join(lines)),
-            ephemeral=True,
+        # 订阅多起来就会撞一条 embed 的 4096 上限：装不下就翻页，而不是整条命令报错。
+        await send_paged_lines(
+            interaction,
+            title=t(interaction, "feed.list.title"),
+            lines=lines,
+            translate=self._translator_for(interaction),
         )
+
+    def _translator_for(self, interaction: discord.Interaction):
+        """绑定好语言的查文案函数，交给分页组件取按钮与页脚文案。"""
+        t = self.bot.t
+        return lambda key, **kwargs: t(interaction, key, **kwargs)
 
     # ------------------------------------------------------------------ /feed remove
 

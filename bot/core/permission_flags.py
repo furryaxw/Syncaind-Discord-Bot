@@ -62,6 +62,17 @@ def inherit_overwrite(*flags: str) -> discord.PermissionOverwrite:
     return overwrite
 
 
+def describe_overwrite(overwrite: discord.PermissionOverwrite) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """读出一个权限覆盖里的 ``(allow, deny)`` 两组权限名。
+
+    给「这一次会把旧值换成什么」用：``set_permissions`` 是**整份替换**，
+    没提到的位会退回「继承」。旧值读不出来，人就只能凭记忆重敲一遍。
+    """
+    allowed = tuple(sorted(name for name in VALID_FLAGS if getattr(overwrite, name, None) is True))
+    denied = tuple(sorted(name for name in VALID_FLAGS if getattr(overwrite, name, None) is False))
+    return allowed, denied
+
+
 def apply_overwrite(
     permissions: discord.Permissions, *, allow: tuple[str, ...], deny: tuple[str, ...]
 ) -> discord.Permissions:

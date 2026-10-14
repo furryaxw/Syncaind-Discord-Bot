@@ -12,7 +12,16 @@ from discord.ext import commands
 from bot.core.audit import audit_reason, post_to_mod_log
 from bot.core.errors import UserError
 from bot.core.translator import localized
-from bot.core.ui import ConfirmView, add_fields, ask_confirmation, info_embed, ok_embed, warn_embed
+from bot.core.ui import (
+    ConfirmView,
+    add_fields,
+    ask_confirmation,
+    clip_text,
+    info_embed,
+    ok_embed,
+    send_paged_lines,
+    warn_embed,
+)
 
 from .service import (
     DEFAULT_HISTORY_LIMIT,
@@ -27,6 +36,9 @@ from .service import (
 LOGGER = logging.getLogger("bot.cases")
 
 MAX_REASON_LENGTH = 480
+# 列表里每条理由只留开头：25 条 × 480 字符会把整条 embed 撑爆（上限 6000），
+# 而完整理由就在 `/case view <编号>` 里。
+HISTORY_REASON_LIMIT = 300
 
 
 @app_commands.guild_only()
@@ -78,14 +90,17 @@ class CasesCog(commands.Cog):
             )
             return
 
-        embed = info_embed(title, t(interaction, "cases.history.description", count=len(records)))
+        lines = [t(interaction, "cases.history.description", count=len(records)), ""]
         for record in records:
-            embed.add_field(
-                name=f"#{record.case_number} · {t(interaction, f'actions.{record.action}')}",
-                value=self._history_lines(interaction, record),
-                inline=False,
-            )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+            lines.append(self._history_lines(interaction, record))
+            lines.append("")
+        await send_paged_lines(
+            interaction,
+            title=title,
+            lines=lines,
+            translate=self._translator_for(interaction),
+            footer=t(interaction, "cases.history.footer"),
+        )
 
     # ------------------------------------------------------------------ /case view
 
@@ -279,20 +294,27 @@ class CasesCog(commands.Cog):
         return t(interaction, "cases.revoke.undo_not_possible")
 
     def _history_lines(self, interaction: discord.Interaction, record: CaseRecord) -> str:
+        """一条记录一块（含标题）。理由只留开头，完整理由在 ``/case view``。"""
         t = self.bot.t
-        lines: list[str] = []
+        lines: list[str] = [f"**#{record.case_number} · {t(interaction, f'actions.{record.action}')}**"]
         if record.is_revoked:
             lines.append(t(interaction, "cases.history.revoked", time=record.revoked_at or ""))
+        reason = record.reason or t(interaction, "common.no_reason")
         lines.append(
             t(
                 interaction,
                 "cases.history.reason_line",
-                reason=record.reason or t(interaction, "common.no_reason"),
+                reason=clip_text(reason, HISTORY_REASON_LIMIT),
             )
         )
         lines.append(t(interaction, "cases.history.moderator_line", moderator=f"<@{record.moderator_id}>"))
         lines.append(t(interaction, "cases.history.time_line", time=record.created_at))
         return "\n".join(lines)
+
+    def _translator_for(self, interaction: discord.Interaction) -> Any:
+        """绑定好语言的查文案函数，交给分页组件取按钮与页脚文案。"""
+        t = self.bot.t
+        return lambda key, **kwargs: t(interaction, key, **kwargs)
 
     async def _post_case_log(
         self,

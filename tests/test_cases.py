@@ -10,6 +10,7 @@ import pytest
 from bot.core.bot import SyncaindBot
 from bot.core.errors import UserError
 from bot.core.store import GuildSettingsStore
+from bot.core.ui import PAGE_CHAR_LIMIT
 from bot.modules.cases import cog as cases_cog_module
 from bot.modules.cases.service import (
     CaseAlreadyRevoked,
@@ -184,9 +185,28 @@ async def test_history_command_lists_records(settings) -> None:
 
     embed = interaction.response._messages[-1]["embed"]
     assert embed.title == "target 的处罚史"
-    names = [field.name for field in embed.fields]
-    assert names == ["#2 · 踢出", "#1 · 警告"]
-    assert "屡教不改" in embed.fields[0].value
+    description = embed.description or ""
+    assert description.index("#2 · 踢出") < description.index("#1 · 警告"), "新的排在前"
+    assert "屡教不改" in description
+    assert "/case view" in (embed.footer.text or "")
+
+
+async def test_history_pages_instead_of_failing_on_long_reasons(settings) -> None:
+    """25 条长理由 ≈ 1.4 万字符，远超一条 embed 的 6000 上限：必须分页，而不是整条命令 400。"""
+    bot = await setup_bot(settings)
+    try:
+        for _index in range(25):
+            await seed_case(bot, action="warn", reason="很长的理由。" * 80)
+        guild = build_guild()
+        interaction = make_interaction(guild)
+
+        await run_command(bot, "history", interaction, member=guild.get_member(TARGET_ID), limit=25)
+    finally:
+        await bot.db.close()
+
+    last = interaction.response._messages[-1]
+    assert "view" in last, "装不下就得给翻页按钮"
+    assert len(last["embed"].description or "") <= PAGE_CHAR_LIMIT
 
 
 async def test_history_command_says_when_there_is_nothing(settings) -> None:

@@ -130,6 +130,14 @@ class KeyDrop:
         return self.mode == RAFFLE
 
 
+@dataclass(frozen=True)
+class KeyEntry:
+    """一次抽奖报名。报名的**顺序**就是名单的顺序，所以它同时也是一种凭据。"""
+
+    discord_user_id: int
+    entered_at: str
+
+
 class KeyDropStore:
     def __init__(self, db: Database, *, logger: logging.Logger | None = None) -> None:
         self._db = db
@@ -220,6 +228,50 @@ class KeyDropStore:
             (guild_id, OPEN),
         )
         return [_to_drop(row) for row in rows]
+
+    async def recent_in_guild(self, guild_id: int, *, limit: int = 10) -> list[KeyDrop]:
+        """本服务器最近的发码活动，**不分状态**。
+
+        活动编号是短随机串、只出现一次；没有这个入口，划走那条回复就再也敲不出
+        ``/key close <编号>``。
+        """
+        rows = await self._db.fetchall(
+            """
+            SELECT * FROM key_drops
+             WHERE guild_id = ?
+             ORDER BY created_at DESC, drop_id DESC
+             LIMIT ?
+            """,
+            (guild_id, int(limit)),
+        )
+        return [_to_drop(row) for row in rows]
+
+    async def entry_counts(self, drop_ids: list[str]) -> dict[str, int]:
+        """一次查出多个活动的报名人数（列表页用，避免一行一条查询）。"""
+        if not drop_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in drop_ids)
+        rows = await self._db.fetchall(
+            f"""
+            SELECT drop_id, COUNT(*) AS total FROM key_drop_entries
+             WHERE drop_id IN ({placeholders})
+             GROUP BY drop_id
+            """,
+            tuple(drop_ids),
+        )
+        return {str(row["drop_id"]): int(row["total"]) for row in rows}
+
+    async def entry_list(self, drop_id: str) -> list[KeyEntry]:
+        """报名名单（含报名时间）。``entries()`` 只给开奖用，这个是给人看的。"""
+        rows = await self._db.fetchall(
+            """
+            SELECT discord_user_id, entered_at FROM key_drop_entries
+             WHERE drop_id = ?
+             ORDER BY entered_at, discord_user_id
+            """,
+            (drop_id,),
+        )
+        return [KeyEntry(int(row["discord_user_id"]), str(row["entered_at"])) for row in rows]
 
     async def take_slot(self, drop_id: str) -> bool:
         """先到先得的名额：**一条 SQL 里自增并封顶**，所以并发点击不会超发。

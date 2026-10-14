@@ -3,6 +3,7 @@
   "cases.duration.minutes": "{minutes} 分钟",
   "cases.history.description": "最近 {count} 条记录。",
   "cases.history.empty": "这个人没有任何处罚记录。",
+  "cases.history.footer": "每条只显示理由开头；单条的完整内容用 `/case view <编号>`。",
   "cases.history.moderator_line": "执行者：{moderator}",
   "cases.history.reason_line": "理由：{reason}",
   "cases.history.revoked": "⚠️ 已于 {time} 撤销",

@@ -40,6 +40,7 @@
   "roles.color.done": "Colour of {role} is now {color}.",
   "roles.color.done_title": "Colour changed",
   "roles.confirm.delete": "About to delete the role **{role}** (currently held by {count} member(s)).\nReason: {reason}",
+  "roles.confirm.revoke": "About to take {role} away from **{count}** member(s).\nRoles handed out by hand are removed too - the bot does not track where a role came from.",
   "roles.confirm.title": "Confirm this action?",
   "roles.create.done": "Created the role {role}.",
   "roles.create.done_title": "Role created",

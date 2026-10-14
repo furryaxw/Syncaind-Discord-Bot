@@ -65,6 +65,8 @@ def test_user_error_keeps_key_and_placeholders() -> None:
         (discord.Forbidden(http_like(403, "Forbidden"), {"message": "x", "code": 50013}), "errors.discord_forbidden"),
         (discord.NotFound(http_like(404), {"message": "x", "code": 10007}), "errors.discord_not_found"),
         (discord.HTTPException(http_like(500), {"message": "x"}), "errors.discord_http"),
+        # 400 是「请求内容不收」，说成「稍后重试」会让人重试一份永远发不出去的请求。
+        (discord.HTTPException(http_like(400), {"message": "x"}), "errors.discord_bad_request"),
         (RuntimeError("boom"), "errors.unexpected"),
     ],
 )

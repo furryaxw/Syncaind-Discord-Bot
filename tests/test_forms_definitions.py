@@ -501,7 +501,8 @@ def test_review_card_truncates_instead_of_blowing_the_embed_limit(text_en, tr) -
 
     embed = rendering.review_card(definition, make_submission(answers=answers), text=text_en, tr=tr, applicant="<@300>")
 
-    assert embed.footer.text is not None and "export" in embed.footer.text
+    # 截断是可以的，但必须指出**在 Discord 里**怎么读全文（CSV 只用于导出）。
+    assert embed.footer.text is not None and "/form submission" in embed.footer.text
     assert sum(len(field.value) for field in embed.fields) < rendering.EMBED_TOTAL_LIMIT
 
 

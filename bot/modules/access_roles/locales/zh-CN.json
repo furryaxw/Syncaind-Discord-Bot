@@ -22,6 +22,8 @@
   "access.sync.dry_title": "同步预览（没有改动）",
   "access.sync.report": "检查了 **{checked}** 位已绑定成员；加 **{added}** / 撤 **{removed}**；跳过 **{skipped}**（不在服务器里或角色层级不够）；**{failed}** 位读不到权限（已跳过，没动他们的角色）。",
   "access.sync.title": "同步完成",
+  "access.unbind.confirm_body": "即将把 `{node}` 上的 **{count}** 条绑定一次全部解除：{roles}\n角色本身不会被删，只是不再由这个节点自动发放。",
+  "access.unbind.confirm_title": "确认解绑全部？",
   "access.unbind.description": "删除一条节点绑定",
   "access.unbind.done": "已删除 `{node}` 的 **{count}** 条绑定。已经发出去的角色**不会**被自动撤掉，下次 `/access sync` 才会。",
   "access.unbind.none": "`{node}` 没有任何绑定。",

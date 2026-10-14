@@ -334,6 +334,37 @@ async def test_overwrite_requires_at_least_one_permission(settings) -> None:
     assert excinfo.value.key == "errors.no_permissions_given"
 
 
+async def test_overwrite_confirmation_shows_the_values_it_will_replace(
+    settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """set_permissions 是整份替换：确认卡片上必须能看到即将被抹掉的旧值。"""
+    bot = await setup_bot(settings)
+    try:
+        guild = build_guild()
+        channel = guild.channels[0]
+        role = guild.get_role(TARGET_ID * 10)
+        channel.overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=False)
+        interaction = make_interaction(guild)
+        stub_confirmation(monkeypatch, answer=False)
+
+        await run_command(
+            bot,
+            "channel overwrite",
+            interaction,
+            channel=channel,
+            target=role,
+            deny="attach_files",
+        )
+    finally:
+        await bot.db.close()
+
+    body = interaction.response._messages[-1]["embed"].description
+    assert "`view_channel`" in body, "旧值的 allow 要显示出来"
+    assert "`send_messages`" in body, "旧值的 deny 要显示出来"
+    assert "整份替换" in body
+    assert channel._permissions == [], "取消之后一个覆盖都不许写"
+
+
 async def test_overwrite_applies_after_confirmation(settings, monkeypatch: pytest.MonkeyPatch) -> None:
     bot = await setup_bot(settings)
     try:

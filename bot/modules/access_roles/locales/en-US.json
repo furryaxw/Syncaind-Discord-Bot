@@ -22,6 +22,8 @@
   "access.sync.dry_title": "Sync preview (nothing changed)",
   "access.sync.report": "Checked **{checked}** linked members; added **{added}** / removed **{removed}**; skipped **{skipped}** (not in the server, or role hierarchy); **{failed}** could not be read (skipped, their roles untouched).",
   "access.sync.title": "Synced",
+  "access.unbind.confirm_body": "This removes **all {count}** binding(s) of `{node}` at once: {roles}\nThe roles themselves are kept; they just stop being granted from this node.",
+  "access.unbind.confirm_title": "Remove every binding?",
   "access.unbind.description": "Remove a node binding",
   "access.unbind.done": "Removed **{count}** binding(s) for `{node}`. Roles already granted are **not** revoked automatically — the next `/access sync` does that.",
   "access.unbind.none": "`{node}` has no bindings.",

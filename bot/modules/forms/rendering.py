@@ -199,6 +199,30 @@ def answer_fields(
     return pairs
 
 
+def answer_blocks(
+    definition: FormDefinition,
+    answers: dict[str, Any],
+    *,
+    text: FormText,
+    tr: Translate,
+    skipped: tuple[str, ...] = (),
+) -> list[str]:
+    """一份完整的答案，一个字段一个块。**不截断** —— 看详情用这个。
+
+    卡片与结果列表必须截断（一条 embed 装不下长文），但那是「一次显示的容量」问题，
+    不该变成「想看全文得导出 CSV」。这条路上的块由调用方按字符预算分页。
+    """
+    blocks: list[str] = []
+    for field in definition.fields:
+        if field.key in skipped:
+            continue
+        raw = answers.get(field.key)
+        if is_blank(raw):
+            continue
+        blocks.append(f"**{text(field.label)}**\n{format_value(field, raw, text=text, tr=tr)}")
+    return blocks
+
+
 def open_card(
     definition: FormDefinition,
     publication: FormPublication,
@@ -260,7 +284,7 @@ def review_card(
         embed.add_field(name=clip(name, 256), value=clip(value, FIELD_VALUE_LIMIT), inline=False)
         budget -= len(name) + len(value)
     if truncated:
-        embed.set_footer(text=tr("forms.review.truncated", form=definition.id))
+        embed.set_footer(text=tr("forms.review.truncated", id=submission.submission_id))
     return embed
 
 

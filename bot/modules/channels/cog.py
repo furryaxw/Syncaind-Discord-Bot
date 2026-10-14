@@ -19,11 +19,21 @@ from bot.core.errors import UserError
 from bot.core.permission_flags import (
     PermissionParseError,
     build_overwrite,
+    describe_overwrite,
     inherit_overwrite,
     parse_flags,
 )
 from bot.core.translator import localized
-from bot.core.ui import ConfirmView, add_fields, ask_confirmation, info_embed, ok_embed, warn_embed
+from bot.core.ui import (
+    FIELD_VALUE_LIMIT,
+    ConfirmView,
+    add_fields,
+    ask_confirmation,
+    clip_text,
+    info_embed,
+    ok_embed,
+    warn_embed,
+)
 
 LOGGER = logging.getLogger("bot.channels")
 
@@ -264,6 +274,8 @@ class ChannelsCog(commands.Cog):
     ) -> None:
         overwrite = self._parse_overwrite(interaction, allow, deny)
 
+        # set_permissions 是**整份替换**：不说清旧值就没人知道会被抹掉什么。
+        current_allow, current_deny = describe_overwrite(channel.overwrites_for(target))
         t = self.bot.t
         view = self._confirm_view(interaction)
         embed = warn_embed(
@@ -275,6 +287,8 @@ class ChannelsCog(commands.Cog):
                 target=self._target_text(target),
                 allow=self._flags_text(interaction, allow),
                 deny=self._flags_text(interaction, deny),
+                current_allow=self._flags_line(interaction, current_allow),
+                current_deny=self._flags_line(interaction, current_deny),
             ),
         )
         if not await ask_confirmation(interaction, embed=embed, view=view):
@@ -359,7 +373,13 @@ class ChannelsCog(commands.Cog):
         if failed:
             result = add_fields(
                 result,
-                [(t(interaction, "channels.overwrite_category.failed"), ", ".join(failed), False)],
+                [
+                    (
+                        t(interaction, "channels.overwrite_category.failed"),
+                        clip_text(", ".join(failed), FIELD_VALUE_LIMIT),
+                        False,
+                    )
+                ],
             )
         await interaction.edit_original_response(embed=result, view=None)
 
@@ -389,6 +409,12 @@ class ChannelsCog(commands.Cog):
         except PermissionParseError:
             return text
         return ", ".join(f"`{flag}`" for flag in flags) if flags else self.bot.t(interaction, "common.none")
+
+    def _flags_line(self, interaction: discord.Interaction, flags: tuple[str, ...]) -> str:
+        """把已有的权限覆盖渲染成一行（空集合显示「（无）」）。"""
+        if not flags:
+            return self.bot.t(interaction, "common.none")
+        return ", ".join(f"`{flag}`" for flag in flags)
 
     def _confirm_view(self, interaction: discord.Interaction) -> ConfirmView:
         t = self.bot.t

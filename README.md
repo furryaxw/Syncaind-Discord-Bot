@@ -85,9 +85,9 @@ Linux / macOS 上把 `.venv\Scripts\` 换成 `.venv/bin/` 即可。
 | `reaction_roles` | `/reactionrole add`、`remove`、`list`、`clear`                                                                                 | Manage Roles                                       |
 | `github_bridge`  | `/link github [method]`、`/link show [member]`、`/link remove [member]`                                                       | 无（看/改**别人**的绑定需要 Manage Roles）                     |
 | `github_feed`    | `/feed add <仓库> [目标]`、`/feed list`、`/feed remove <仓库>`、`/feed sync <仓库>`                                                    | Manage Server                                      |
-| `access_keys`    | `/key drop <批次> <数量> <模式> [角色] [排除角色] [分钟] [team]`、`/key close <编号>`、`/key list <批次>`、`/key deny-role <角色>`、`/key allow-role <角色>` | Manage Server（点按钮参与不需要）                     |
+| `access_keys`    | `/key drop <批次> <数量> <模式> [角色] [排除角色] [分钟] [team]`、`/key close <编号>`、`/key drops [数量]`、`/key entries <编号>`、`/key list <批次>`、`/key deny-role <角色>`、`/key allow-role <角色>` | Manage Server（点按钮参与不需要）                     |
 | `access_roles`   | `/access bind <节点> <角色>`、`/access unbind <节点> [角色]`、`/access list`、`/access sync [dry_run]`、`/access status <成员>`           | Manage Roles                                       |
-| `forms`          | `/form post <表单> [频道] [名额] [分钟]`、`/form close <发布编号>`、`/form bind <表单> [审核频道] [审核员角色] [通知频道] [发放角色]`、`/form list`、`/form results <表单> [状态] [条数]`、`/form export <表单> [状态]` | Manage Server（填写与审核都走卡片上的按钮）                 |
+| `forms`          | `/form post <表单> [频道] [名额] [分钟]`、`/form close <发布编号>`、`/form bind <表单> [审核频道] [审核员角色] [通知频道] [发放角色]`、`/form list`、`/form results <表单> [状态] [条数]`、`/form submission <提交编号>`、`/form export <表单> [状态]` | Manage Server（填写与审核都走卡片上的按钮）                 |
 | `tools`          | `/serverinfo`、`/userinfo [member]`、`/permissions [member]`                                                                  | 无                                                  |
 
 命令名一律是英文且**不做本地化**（`/kick` 不会变成 `/踢出`）；描述与参数说明会按客户端语言切换。理由：命令名是肌肉记忆和外部脚本的锚点，而且本地化名称一旦不合 Discord 的命名规则会让整次同步失败。
@@ -98,12 +98,12 @@ Linux / macOS 上把 `.venv\Scripts\` 换成 `.venv/bin/` 即可。
 * **警告升级**：有效警告数达到 `warn_threshold`（默认 3）的整数倍时触发升级，动作为 `warn_action`（默认 `timeout`，可设 `kick` / `ban`），禁言时长取 `warn_timeout_minutes`（默认 60）。阈值设为 `0` 表示关闭自动升级。
 * **撤销会真的回滚**：ban → 解封，timeout → 解除禁言，warn → 该条警告不再计入累计。kick / purge 无法回滚，只做记录。Discord 侧回滚失败时**不会**标记成已撤销 —— 记录说撤销了、实际还封着，这种状态不能出现。
 * **锁定/解锁**：锁定是给 @everyone 加 `send_messages=False`；解锁是把这一项**恢复成继承**（而不是强制允许），所以上层规则继续生效。
-* **权限名**用 Discord 的权限位名（`send_messages`、`view_channel`、`manage_messages`…），多个用逗号或空格分隔。敲错名字会被明确拒绝，不会静默忽略。`/role permissions` 与频道覆盖**只动你点名的那几项**，没提到的权限保持原样。
+* **权限名**用 Discord 的权限位名（`send_messages`、`view_channel`、`manage_messages`…），多个用逗号或空格分隔。敲错名字会被明确拒绝，不会静默忽略。`/role permissions` **只改点名的权限位**；`/channel overwrite` 则是**整份替换**——没提到的位会退回「继承」，所以它的确认卡片会把该对象当前的 allow/deny 一并列出来。
 * **反应角色**绑定在消息上：成员点表情给角色、取消表情收角色。映射落库，重启后照样有效；角色被删掉时，那条规则会在下次有人点它时自动清理。
   由于点表情本身没有任何界面回应，机器人会给当事人**发一条私信**说明拿到/失去了哪个角色（给不上时也会说明原因）。私信的语言取服务器配置的语言，没配就用 `DEFAULT_LOCALE` —— **反应事件里拿不到对方的客户端语言**（那是交互才有的字段），所以想要中文提示就把 `.env` 里的 `DEFAULT_LOCALE` 改成 `zh-CN`。对方关了私信就静默跳过（记在日志里）。
 * **表单**（`forms`）有三种用途、共用同一套定义：**申请**走审核（通过 / 驳回 / 让他补充），**收集**提交即完成（可允许多份），**报名**提交即占名额、满了自动关。表单是**数据、而且不在仓库里**：放在数据目录的 `forms/`（即 `data/forms/<id>.json`，与数据库、附件同一个卷，不随部署被覆盖），一个文件一个表单，**文字也写在那个文件里**；`/module reload forms` 之后生效。审核频道、审核员角色、通知频道与发放角色用 `/form bind` 绑 —— 那些是服务器的身份，同样不该进代码。
 * **填写是多步弹窗**：一步最多 5 个空（Discord 的硬限制），每提交一步就落一次库，所以中途关掉客户端或机器人重启都不会丢；附件一提交就下载进 `data/attachments/`（Discord 给的下载链接会过期），过期草稿连附件一起清掉。
-* **审核在卡片上点按钮**，权限来自绑定的审核员角色（服务器主始终可以）。**通过后动作先做、状态后改**：发角色或通知失败时申请保持待审，再点一次就是重试，不会出现「记录说通过了、实际什么都没发生」。驳回与要求补充都要写理由并私信给申请人；结果用 `/form results` 看、`/form export` 导出 CSV（带 BOM，Excel 直接打得开；审核卡片只放摘要，长文看导出的完整内容）。
+* **审核在卡片上点按钮**，权限来自绑定的审核员角色（服务器主始终可以）。**通过后动作先做、状态后改**：发角色或通知失败时申请保持待审，再点一次就是重试，不会出现「记录说通过了、实际什么都没发生」。驳回与要求补充都要写理由并私信给申请人；结果用 `/form results` 看，**完整内容用 `/form submission <提交编号>` 读**（长答按页翻，不必导出），`/form export` 的 CSV 只用于导出（带 BOM，Excel 直接打得开）。申请人的附件转存到 `data/attachments/`，卡片与详情里只列文件名与大小。
 * **加一种表单**：把一个 `<id>.json`（字段、用途、文字、通过后做什么）放到 `data/forms/` → `/module reload forms` → `/form bind <表单> …` 绑频道与角色 → `/form post <表单>` 把卡片发出去。文件名必须等于 `id`，未知键会直接报错。问题写长一点就用「问题当标题（≤45 字符）+ 补充说明当副标题（≤100 字符）」：超了同样会报错，不会被悄悄截断。
 
 ## 部署
@@ -384,6 +384,8 @@ WATCHER_API_TOKEN=<GHW_API_TOKEN>
 /key drop <批次> <数量> mode:抽奖      [role:角色] [deny_role:角色] [minutes:10] [team:id]
 /key drop <批次> <数量> mode:先到先得  [role:角色] [deny_role:角色] [team:id]
 /key close <编号>     # 立刻结束（抽奖会立即开奖）
+/key drops [数量]     # 最近的活动与编号（编号丢了就靠它找回）
+/key entries <编号>   # 抽奖的报名名单（谁报了名、什么时候）
 /key list <批次>      # 看这批发给了谁（只有前缀）
 /key deny-role <角色> # 持有该角色的人不能领取，也不能参与抽奖
 /key allow-role <角色>
@@ -398,14 +400,14 @@ WATCHER_API_TOKEN=<GHW_API_TOKEN>
 * **码只走私信**。频道消息、开奖公告、回执里**永远不出现完整的码**（只有前缀/人数），测试里有专门断言。
 * **取码是服务端原子的**（`take`），**先到先得的名额是一条 SQL 自增封顶**，所以并发点击既不会超发也不会发重。
 * **发不出去就还原**：对方关了私信时 → `release` 退码 + 撤登记 + **把名额还回去**，那枚码不会悬在「已发放但没人拿到」。
-* **开奖靠库里的状态驱动**（后台每 30 秒扫一次到点的活动），所以重启也不会漏掉该开奖的活动。
+* **开奖靠库里的状态驱动**（后台每 30 秒扫一次到点的活动），所以重启也不会漏掉该开奖的活动。**活动编号与报名名单都查得到**：编号只出现过一次（创建回执里），`/key drops` 把它找回；报名名单用 `/key entries <编号>` 看（先到先得没有名单，看谁领到了用 `/key list <批次>`）。
 * 一个 GitHub 账号只能绑一个人，所以「谁领到了哪一枚」永远有唯一的归属。
 
 ### 权限节点 → 角色（`access_roles`）
 
 ```
 /access bind <节点模式> <角色>   # 持有该节点的人给这个角色
-/access unbind <节点模式> [角色]
+/access unbind <节点模式> [角色]  # 省略角色 = 解除该节点全部绑定（会先确认）
 /access list
 /access sync [dry_run]          # 立刻对齐；dry_run 只报告不动手
 /access status <成员>           # 他为什么有这些角色

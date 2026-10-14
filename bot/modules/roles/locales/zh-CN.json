@@ -40,6 +40,7 @@
   "roles.color.done": "{role} 的颜色已改为 {color}。",
   "roles.color.done_title": "颜色已修改",
   "roles.confirm.delete": "即将删除角色 **{role}**（当前有 {count} 位成员）。\n理由：{reason}",
+  "roles.confirm.revoke": "即将从 **{count}** 位成员身上撤掉 {role}。\n别人手动发的这个角色也会被一起撤掉 —— 机器人不区分角色是怎么来的。",
   "roles.confirm.title": "确认执行？",
   "roles.create.done": "已创建角色 {role}。",
   "roles.create.done_title": "角色已创建",

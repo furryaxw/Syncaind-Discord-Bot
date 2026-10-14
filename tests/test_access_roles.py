@@ -16,6 +16,7 @@ import pytest
 from bot.core.errors import UserError
 from bot.integrations.github import GitHubAccountStore
 from bot.integrations.smas import AccessSourceError, NodeRoleBindingStore
+from bot.modules.access_roles import cog as access_roles_module
 from tests.discord_fakes import (
     GUILD_ID,
     MODERATOR_ID,
@@ -48,6 +49,17 @@ def spare_role(guild: Any, role_id: int = SPARE_ROLE_ID) -> FakeRole:
 
 def interaction_for(guild: Any, member: Any = None) -> FakeInteraction:
     return FakeInteraction(user=member or guild.get_member(MODERATOR_ID), guild=guild)
+
+
+def stub_confirmation(monkeypatch: pytest.MonkeyPatch, *, answer: bool) -> None:
+    """把二次确认换掉：它只是「阻挡误操作」的一步，测试里直接给出答复。"""
+
+    async def fake_ask(interaction: Any, *, embed: Any, view: Any) -> bool:
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        view.result = answer
+        return answer
+
+    monkeypatch.setattr(access_roles_module, "ask_confirmation", fake_ask)
 
 
 async def link(bot: Any, discord_user_id: int, github_user_id: int) -> None:
@@ -220,7 +232,8 @@ async def test_smas_commands_require_a_linked_github_account(settings: Any, path
     assert excinfo.value.key == "github.link_required"
 
 
-async def test_bind_list_and_unbind(settings: Any) -> None:
+async def test_bind_list_and_unbind(settings: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    stub_confirmation(monkeypatch, answer=True)
     bot = await setup_bot(settings)
     try:
         guild = build_guild()
@@ -239,7 +252,30 @@ async def test_bind_list_and_unbind(settings: Any) -> None:
 
     assert PATTERN in listed.response._messages[-1]["embed"].description
     assert remaining == []
-    assert "已删除" in removed.response._messages[-1]["embed"].description
+    assert "已删除" in removed.response._edits[-1]["embed"].description
+
+
+async def test_unbind_asks_before_removing_every_role_of_a_node(settings: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """省略 role 参数是一次删多条：没确认之前不许动库。"""
+    stub_confirmation(monkeypatch, answer=False)
+    bot = await setup_bot(settings)
+    try:
+        guild = build_guild()
+        await link(bot, MODERATOR_ID, 100)
+        role = guild.get_member(TARGET_ID).top_role
+        await run_command(bot, "access bind", interaction_for(guild), node=PATTERN, role=role)
+
+        interaction = interaction_for(guild)
+        await run_command(bot, "access unbind", interaction, node=PATTERN)
+
+        remaining = await NodeRoleBindingStore(bot.db).all(GUILD_ID)
+    finally:
+        await bot.db.close()
+
+    assert len(remaining) == 1, "说了取消就一条都不能删"
+    confirm = interaction.response._messages[-1]["embed"]
+    assert "1" in confirm.description and role.mention in confirm.description
+    assert "什么都没做" in (interaction.response._edits[-1]["embed"].title or "")
 
 
 async def test_a_bad_pattern_is_explained(settings: Any) -> None:

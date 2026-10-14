@@ -3,6 +3,7 @@
   "cases.duration.minutes": "{minutes} minute(s)",
   "cases.history.description": "The {count} most recent record(s).",
   "cases.history.empty": "No moderation records for this member.",
+  "cases.history.footer": "Only the start of each reason is shown; read one in full with `/case view <number>`.",
   "cases.history.moderator_line": "Moderator: {moderator}",
   "cases.history.reason_line": "Reason: {reason}",
   "cases.history.revoked": "⚠️ revoked at {time}",

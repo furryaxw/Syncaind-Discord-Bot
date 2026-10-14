@@ -13,6 +13,7 @@ import discord
 import pytest
 
 from bot.core.errors import UserError
+from bot.core.ui import PAGE_CHAR_LIMIT
 from bot.modules.forms import cog as forms_module
 from bot.modules.forms.cog import (
     APPROVE_ID,
@@ -234,6 +235,58 @@ async def test_results_and_export(cog, world) -> None:
     payload = interaction.response._messages[-1]["file"]
     assert payload.filename == "feedback.csv"
     assert payload.fp.read().startswith(b"\xef\xbb\xbf"), "CSV 带 BOM，Excel 才不会把中文读成乱码"
+
+
+async def test_submission_shows_the_full_answer_in_discord(cog, world) -> None:
+    """长答案必须能在 Discord 里读完 —— CSV 只用于导出，不该是看全文的唯一办法。"""
+    long_answer = "这是一段很长的回答。" * 120
+    submission = await cog.store.submissions.create(
+        GUILD_ID,
+        form_id="feedback",
+        publication_id=None,
+        discord_user_id=APPLICANT_ID,
+        answers={"topics": ["mods"], "detail": long_answer},
+        status=RECEIVED,
+        attachment_dir=new_storage_key(),
+    )
+    interaction = FakeInteraction(user=world.reviewer, guild=world.guild)
+
+    await run_command(cog.bot, "form submission", interaction, submission_id=submission.submission_id)
+
+    embed = interaction.response._messages[-1]["embed"]
+    assert embed.title == f"提交 `#{submission.submission_id}`　意见收集"
+    assert long_answer in (embed.description or "")
+    assert "完整答案" in (embed.footer.text or "")
+
+
+async def test_submission_pages_a_very_long_answer(cog, world) -> None:
+    """四千字的答案一页装不下：要分页，而不是截断或报错。"""
+    long_answer = "长" * 4000
+    submission = await cog.store.submissions.create(
+        GUILD_ID,
+        form_id="feedback",
+        publication_id=None,
+        discord_user_id=APPLICANT_ID,
+        answers={"topics": ["mods"], "detail": long_answer},
+        status=RECEIVED,
+        attachment_dir=new_storage_key(),
+    )
+    interaction = FakeInteraction(user=world.reviewer, guild=world.guild)
+
+    await run_command(cog.bot, "form submission", interaction, submission_id=submission.submission_id)
+
+    last = interaction.response._messages[-1]
+    assert "view" in last, "一页装不下的答案必须给翻页按钮"
+    assert len(last["embed"].description or "") <= PAGE_CHAR_LIMIT
+
+
+async def test_submission_refuses_an_unknown_id(cog, world) -> None:
+    interaction = FakeInteraction(user=world.reviewer, guild=world.guild)
+
+    with pytest.raises(UserError) as excinfo:
+        await run_command(cog.bot, "form submission", interaction, submission_id=9999)
+
+    assert excinfo.value.key == "forms.submission.not_found"
 
 
 async def test_export_refuses_when_there_is_nothing(cog, world) -> None:

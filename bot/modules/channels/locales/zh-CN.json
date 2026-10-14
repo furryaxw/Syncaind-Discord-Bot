@@ -1,7 +1,7 @@
 {
   "channels.confirm.delete": "即将删除 {target}。\n理由：{reason}",
-  "channels.confirm.overwrite": "即将在 {channel} 上为 {target} 设置权限覆盖。\n允许：{allow}\n拒绝：{deny}",
-  "channels.confirm.overwrite_category": "即将在分类 **{category}** 下的 {count} 个频道上，为 {target} 设置同一份权限覆盖。\n允许：{allow}\n拒绝：{deny}",
+  "channels.confirm.overwrite": "即将在 {channel} 上为 {target} 设置权限覆盖。\n允许：{allow}\n拒绝：{deny}\n\n⚠️ 这一步是**整份替换**：没提到的权限位会退回「继承」。现在已设的旧值 —— 允许：{current_allow}；拒绝：{current_deny}",
+  "channels.confirm.overwrite_category": "即将在分类 **{category}** 下的 {count} 个频道上，为 {target} 设置同一份权限覆盖。\n允许：{allow}\n拒绝：{deny}\n\n⚠️ 这一步是**整份替换**：每个频道里没提到的权限位都会退回「继承」。",
   "channels.confirm.title": "确认执行？",
   "channels.create.done": "已创建 {channel}。",
   "channels.create.done_title": "频道已创建",

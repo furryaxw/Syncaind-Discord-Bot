@@ -111,5 +111,9 @@ def _classify(error: Exception) -> tuple[str, dict[str, Any], bool]:
     if isinstance(error, discord.NotFound):
         return "errors.discord_not_found", {}, False
     if isinstance(error, discord.HTTPException):
+        # 400 是「这份请求内容 Discord 不收」：绝大多数情况是消息太长或组件非法。
+        # 把它说成「稍后重试」会让人一直重试同一份永远发不出去的请求。
+        if error.status == 400:
+            return "errors.discord_bad_request", {}, False
         return "errors.discord_http", {"status": error.status}, False
     return "errors.unexpected", {}, True

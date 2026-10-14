@@ -40,7 +40,7 @@ from bot.core.audit import audit_reason
 from bot.core.clock import utcnow_iso
 from bot.core.errors import UserError
 from bot.core.translator import localized
-from bot.core.ui import ConfirmView, ask_confirmation, error_embed, info_embed, ok_embed, warn_embed
+from bot.core.ui import ConfirmView, ask_confirmation, error_embed, info_embed, ok_embed, send_paged_lines, warn_embed
 
 from . import rendering, schema
 from .schema import FormDefinition
@@ -1341,13 +1341,63 @@ class FormsCog(commands.Cog):
             definition.id,
             status=status.value if status is not None else None,
         )
-        embed = info_embed(tr("forms.results.title", form=text(definition.title), total=total))
+        title = tr("forms.results.title", form=text(definition.title), total=total)
         if not rows:
-            embed.description = tr("forms.results.empty")
-        else:
-            embed.description = "\n".join(rendering.results_lines(definition, rows, text=text, tr=tr))
-            embed.set_footer(text=tr("forms.results.footer", form=definition.id))
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message(embed=info_embed(title, tr("forms.results.empty")), ephemeral=True)
+            return
+        # 一行一条；25 条长预览也装不进一条 embed，超了就给翻页按钮。
+        await send_paged_lines(
+            interaction,
+            title=title,
+            lines=rendering.results_lines(definition, rows, text=text, tr=tr),
+            translate=tr,
+            footer=tr("forms.results.footer", form=definition.id),
+        )
+
+    @form_group.command(
+        name="submission",
+        description=localized("Show one submission in full", "commands.form.submission.description"),
+        extras={"permissions": ("manage_guild",)},
+    )
+    @app_commands.describe(
+        submission_id=localized("Submission id (listed by /form results)", "commands.form.param_submission")
+    )
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def form_submission(self, interaction: discord.Interaction, submission_id: int) -> None:
+        """一条提交的**完整**内容。
+
+        卡片与 ``/form results`` 都只放得下摘要（一条 embed 装不下长文），所以全文走这里：
+        按字符预算分页，多长都读得完 —— 不必先导出 CSV 再拿 Excel 打开。
+        """
+        guild = self._require_guild(interaction)
+        submission = await self.store.submissions.get(int(submission_id))
+        if submission is None or submission.guild_id != guild.id:
+            raise UserError("forms.submission.not_found", id=submission_id)
+        definition = self._definition(submission.form_id)
+        tr, text = await self.guild_texts(guild.id)
+
+        lines = [
+            tr("forms.review.applicant", user=f"<@{submission.discord_user_id}>"),
+            tr("forms.review.submitted_at", when=submission.submitted_at),
+            tr("forms.review.status", status=tr(f"forms.status.{submission.status}")),
+        ]
+        if submission.reviewed_by:
+            lines.append(tr("forms.review.reviewed_by", user=f"<@{submission.reviewed_by}>"))
+        if submission.decision_reason:
+            lines.append(tr("forms.review.reason", reason=submission.decision_reason))
+        lines.append("")
+        lines.append(tr("forms.submission.answers"))
+        for block in rendering.answer_blocks(definition, submission.answers, text=text, tr=tr):
+            lines.append(block)
+            lines.append("")
+
+        await send_paged_lines(
+            interaction,
+            title=tr("forms.submission.title", id=submission.submission_id, form=text(definition.title)),
+            lines=lines,
+            translate=tr,
+            footer=tr("forms.submission.footer", form=definition.id),
+        )
 
     @form_group.command(
         name="export",

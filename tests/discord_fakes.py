@@ -276,6 +276,13 @@ class FakeChannel(discord.abc.Messageable):
     async def set_permissions(self, target: Any, *, overwrite: Any = None, **kwargs: Any) -> None:
         self._permissions.append({"target": target, "overwrite": overwrite, **kwargs})
 
+    def overwrites_for(self, obj: Any) -> discord.PermissionOverwrite:
+        """真实 ``GuildChannel.overwrites_for`` 的替身：按对象或 id 找回已存的覆盖。"""
+        for key in (obj, getattr(obj, "id", None)):
+            if key is not None and key in self.overwrites:
+                return self.overwrites[key]
+        return discord.PermissionOverwrite()
+
     async def fetch_message(self, message_id: int) -> FakeMessage:
         message = self._messages.get(message_id)
         if message is None:

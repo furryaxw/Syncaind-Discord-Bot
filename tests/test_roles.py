@@ -8,6 +8,7 @@ import discord
 import pytest
 
 from bot.core.errors import UserError
+from bot.core.ui import FIELD_VALUE_LIMIT
 from bot.modules.roles import cog as roles_cog_module
 from bot.modules.roles.cog import MemberParseError, parse_colour, parse_member_ids
 from tests.discord_fakes import (
@@ -304,6 +305,31 @@ async def test_grant_adds_the_role_to_several_members(settings) -> None:
     assert "变更 2 人" in last_message(interaction).description
 
 
+async def test_grant_clips_a_huge_member_list_instead_of_blowing_the_field(settings) -> None:
+    """150 个名字 ≈ 1800 字符，超过字段上限 1024。
+
+    不截断的话整条回执会被 Discord 拒收（400），而角色**已经改完** ——
+    用户看到「接口报错」就会以为没生效、再跑一次。
+    """
+    bot = await setup_bot(settings)
+    try:
+        extras = [FakeMember(10_000 + index, 10, name=f"member-{index:04d}") for index in range(150)]
+        guild = build_guild(extra_members=extras)
+        role = add_role(guild)
+        interaction = make_interaction(guild)
+
+        await run_command(
+            bot, "role grant", interaction, role=role, members=" ".join(str(member.id) for member in extras)
+        )
+    finally:
+        await bot.db.close()
+
+    embed = last_message(interaction)
+    assert all(len(field.value) <= FIELD_VALUE_LIMIT for field in embed.fields)
+    assert any("…" in field.value for field in embed.fields), "超长的那一栏要显示成截断"
+    assert f"add_role:{role.id}" in extras[0]._calls
+
+
 async def test_grant_skips_members_who_already_have_the_role(settings) -> None:
     bot = await setup_bot(settings)
     try:
@@ -350,7 +376,8 @@ async def test_grant_rejects_a_non_numeric_list(settings) -> None:
     assert excinfo.value.key == "roles.bad_member"
 
 
-async def test_remove_takes_the_role_back(settings) -> None:
+async def test_remove_takes_the_role_back(settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    stub_confirmation(monkeypatch, answer=True)
     bot = await setup_bot(settings)
     try:
         guild = build_guild()
@@ -362,7 +389,43 @@ async def test_remove_takes_the_role_back(settings) -> None:
         await bot.db.close()
 
     assert f"remove_role:{role.id}" in guild.get_member(TARGET_ID)._calls
-    assert "移除完成" in last_message(interaction).title
+    assert "移除完成" in last_edit(interaction).title
+
+
+async def test_revoke_asks_before_taking_the_role_away(settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    """撤角色是破坏性动作：说了取消就一个都不能撤。"""
+    stub_confirmation(monkeypatch, answer=False)
+    bot = await setup_bot(settings)
+    try:
+        guild = build_guild()
+        role = guild.get_role(TARGET_ID * 10)
+        interaction = make_interaction(guild)
+
+        await run_command(bot, "role revoke", interaction, role=role, members=str(TARGET_ID))
+    finally:
+        await bot.db.close()
+
+    assert guild.get_member(TARGET_ID)._calls == []
+    confirm = interaction.response._messages[-1]["embed"].description
+    assert role.mention in confirm and "1" in confirm
+    assert "什么都没做" in (interaction.response._edits[-1]["embed"].title or "")
+
+
+async def test_grant_does_not_ask(settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    """授予不是破坏性的：多问一次只会让人多点一下。"""
+    stub_confirmation(monkeypatch, answer=False)
+    bot = await setup_bot(settings)
+    try:
+        guild = build_guild()
+        role = add_role(guild)
+        interaction = make_interaction(guild)
+
+        await run_command(bot, "role grant", interaction, role=role, members=str(TARGET_ID))
+    finally:
+        await bot.db.close()
+
+    assert f"add_role:{role.id}" in guild.get_member(TARGET_ID)._calls
+    assert interaction.response._messages[-1].get("view") is None
 
 
 # ---------------------------------------------------------------- /role info

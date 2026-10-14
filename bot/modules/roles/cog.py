@@ -19,7 +19,16 @@ from bot.core.checks import can_manage_role
 from bot.core.errors import UserError
 from bot.core.permission_flags import PermissionParseError, apply_overwrite, parse_flags
 from bot.core.translator import localized
-from bot.core.ui import ConfirmView, add_fields, ask_confirmation, info_embed, ok_embed, warn_embed
+from bot.core.ui import (
+    FIELD_VALUE_LIMIT,
+    ConfirmView,
+    add_fields,
+    ask_confirmation,
+    clip_text,
+    info_embed,
+    ok_embed,
+    warn_embed,
+)
 
 LOGGER = logging.getLogger("bot.roles")
 
@@ -403,6 +412,27 @@ class RolesCog(commands.Cog):
             raise UserError("roles.no_members")
 
         reason = audit_reason(interaction)
+        t = self.bot.t
+        # 撤角色是破坏性动作（`/role delete` 都有确认，这里不能没有）。
+        # 一个人都没这个角色时不问 —— 那一次调用不会改动任何东西。
+        confirmed = False
+        if not adding:
+            losing = [member for member in resolved if role in member.roles]
+            if losing:
+                confirmed = await ask_confirmation(
+                    interaction,
+                    embed=warn_embed(
+                        t(interaction, "roles.confirm.title"),
+                        t(interaction, "roles.confirm.revoke", role=role.mention, count=len(losing)),
+                    ),
+                    view=self._confirm_view(interaction),
+                )
+                if not confirmed:
+                    await interaction.edit_original_response(
+                        embed=info_embed(t(interaction, "common.aborted")), view=None
+                    )
+                    return
+
         applied: list[str] = []
         unchanged: list[str] = []
         failed: list[str] = []
@@ -421,7 +451,6 @@ class RolesCog(commands.Cog):
                 LOGGER.exception("对成员 %s 变更角色 %s 失败", member.id, role.id)
                 failed.append(member.display_name)
 
-        t = self.bot.t
         embed = ok_embed(
             t(interaction, "roles.grant.done_title" if adding else "roles.revoke.done_title"),
             t(
@@ -437,23 +466,37 @@ class RolesCog(commands.Cog):
             [
                 (
                     t(interaction, "roles.apply.applied_names"),
-                    ", ".join(applied) or None,
+                    self._names_field(applied),
                     False,
                 ),
                 (
                     t(interaction, "roles.apply.unchanged_names"),
-                    ", ".join(unchanged) or None,
+                    self._names_field(unchanged),
                     False,
                 ),
                 (
                     t(interaction, "roles.apply.missing_names"),
-                    ", ".join(f"`{value}`" for value in missing) or None,
+                    self._names_field([f"`{value}`" for value in missing]),
                     False,
                 ),
-                (t(interaction, "roles.apply.failed_names"), ", ".join(failed) or None, False),
+                (t(interaction, "roles.apply.failed_names"), self._names_field(failed), False),
             ],
         )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        if confirmed:
+            await interaction.edit_original_response(embed=embed, view=None)
+        else:
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @staticmethod
+    def _names_field(values: list[str]) -> str | None:
+        """名单进 embed 字段。超过字段上限就截断 —— 总数在汇总那一行里，别丢回执。
+
+        不截断的后果不是「少显示几个字」：整条消息会被 Discord 拒收（400），
+        而角色**已经改完了**，用户只看到「接口报错」就会以为没生效、再跑一次。
+        """
+        if not values:
+            return None
+        return clip_text(", ".join(values), FIELD_VALUE_LIMIT)
 
     async def _resolve_members(self, guild: discord.Guild, members_text: str) -> tuple[list[discord.Member], list[int]]:
         try:

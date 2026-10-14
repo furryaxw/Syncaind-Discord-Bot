@@ -18,6 +18,7 @@ import pytest
 from discord import app_commands
 
 from bot.core.errors import UserError
+from bot.core.ui import PAGE_CHAR_LIMIT
 from bot.integrations.github import GitHubAccountStore
 from bot.integrations.smas import AccessError
 from bot.integrations.smas.key_store import DRAWN, FCFS, OPEN, RAFFLE, KeyDeliveryStore, KeyDropStore
@@ -618,7 +619,109 @@ async def test_the_module_registers_its_commands(settings: Any) -> None:
     finally:
         await bot.db.close()
 
-    assert names == {"drop", "close", "list", "deny-role", "allow-role"}
+    assert names == {"drop", "close", "list", "drops", "entries", "deny-role", "allow-role"}
+
+
+# ---------------------------------------------------------------- /key drops 与报名名单
+
+
+async def test_drops_lists_the_id_so_it_can_be_recovered(settings: Any) -> None:
+    """活动编号只出现过一次（创建时那条回复）；这个列表是把它找回来的唯一入口。"""
+    bot = await setup_bot(settings)
+    try:
+        guild = build_guild()
+        client = configured_client()
+        await link_account(bot)
+        drop, _message = await open_drop(bot, guild, client, mode=RAFFLE, count=2)
+        interaction = interaction_for(guild)
+
+        await run_command(bot, "key drops", interaction)
+    finally:
+        await bot.db.close()
+
+    embed = interaction.response._messages[-1]["embed"]
+    assert drop.drop_id in (embed.description or "")
+    assert "抽奖" in (embed.description or "")
+    assert "进行中" in (embed.description or "")
+    assert "报名 0" in (embed.description or "")
+
+
+async def test_drops_says_so_when_there_is_nothing(settings: Any) -> None:
+    bot = await setup_bot(settings)
+    try:
+        guild = build_guild()
+        interaction = interaction_for(guild)
+
+        await run_command(bot, "key drops", interaction)
+    finally:
+        await bot.db.close()
+
+    description = interaction.response._messages[-1]["embed"].description
+    assert "还没有开过发码活动" in description
+
+
+async def test_entries_lists_every_raffle_signup(settings: Any) -> None:
+    bot = await setup_bot(settings)
+    try:
+        guild = build_guild()
+        client = configured_client()
+        await link_account(bot)
+        drop, _message = await open_drop(bot, guild, client, mode=RAFFLE, count=1)
+        cog = wire(bot, client)
+        await cog.drops.enter(drop.drop_id, MODERATOR_ID)
+        await cog.drops.enter(drop.drop_id, TARGET_ID)
+        interaction = interaction_for(guild)
+
+        # 编号是小写也认（和 /key close 一样）。
+        await run_command(bot, "key entries", interaction, drop_id=drop.drop_id.lower())
+    finally:
+        await bot.db.close()
+
+    embed = interaction.response._messages[-1]["embed"]
+    assert f"<@{MODERATOR_ID}>" in (embed.description or "")
+    assert f"<@{TARGET_ID}>" in (embed.description or "")
+    assert "共 2 人" in (embed.title or "")
+
+
+async def test_entries_refuses_a_first_come_drop(settings: Any) -> None:
+    """先到先得没有报名表：要说清该看哪条命令，而不是给一张空表。"""
+    bot = await setup_bot(settings)
+    try:
+        guild = build_guild()
+        client = configured_client()
+        await link_account(bot)
+        drop, _message = await open_drop(bot, guild, client, mode=FCFS, count=1)
+        interaction = interaction_for(guild)
+
+        with pytest.raises(UserError) as excinfo:
+            await run_command(bot, "key entries", interaction, drop_id=drop.drop_id)
+    finally:
+        await bot.db.close()
+
+    assert excinfo.value.key == "keys.entries.not_raffle"
+    assert excinfo.value.kwargs["batch"] == BATCH
+
+
+async def test_a_huge_entrant_list_is_paged_instead_of_failing(settings: Any) -> None:
+    """300 人报名时不能把整条命令撑爆 —— 那会连前面几个人都看不到。"""
+    bot = await setup_bot(settings)
+    try:
+        guild = build_guild()
+        client = configured_client()
+        await link_account(bot)
+        drop, _message = await open_drop(bot, guild, client, mode=RAFFLE, count=1)
+        cog = wire(bot, client)
+        for user_id in range(1000, 1300):
+            await cog.drops.enter(drop.drop_id, user_id)
+        interaction = interaction_for(guild)
+
+        await run_command(bot, "key entries", interaction, drop_id=drop.drop_id)
+    finally:
+        await bot.db.close()
+
+    last = interaction.response._messages[-1]
+    assert "view" in last, "三百人必须走翻页，而不是一条塞不下的 embed"
+    assert len(last["embed"].description) <= PAGE_CHAR_LIMIT
 
 
 # ---------------------------------------------------------------- 黑名单
