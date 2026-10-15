@@ -40,10 +40,11 @@ class AccessSource(Protocol):
 
 
 class AccessServerSource:
-    """真实实现：``system.users.permissions`` 的 ``read``。
+    """真实实现：``system.permission_assignments`` 的 ``read``（跨全部作用域的只读投影）。
 
     契约要点（已复核）：
-    * 必须持 ``system.users.read`` **且带 System Team 上下文**；
+    * 必须持 ``system.permission_assignments.read``（注册表闸门）＋ ``system.users.read``（处理函数闸门）
+      **且带 System Team 上下文**；
     * 返回的 ``permissions`` 是**系统作用域**节点（``team_id IS NULL`` ∪ System Team 模板展开），
       ``assignments`` 是**跨全部 Team** 的授权记录 —— 两边合起来才是「他的有效节点」；
     * ``user_id`` 是等值匹配，不会因子串而误命中。
@@ -60,7 +61,7 @@ class AccessServerSource:
         try:
             payload = await self._client.call(
                 "read",
-                "system.users.permissions",
+                "system.permission_assignments",
                 {"user_id": github_user_id},
                 team_id=SYSTEM_TEAM_ID,
             )

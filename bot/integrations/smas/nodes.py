@@ -10,6 +10,11 @@
 **通配只允许出现在末段**（和服务端自己的语义一致）：``team.acme.*`` 覆盖该 Team 下的所有节点，
 ``team.*`` 覆盖所有 Team。不允许 ``team.*.read`` 这种中间通配 —— 那会让人以为匹配的是任意一级，
 而服务端的节点语义里没有这个能力。
+
+**持有的一方也可能是通配**：服务端判定时把授权行的节点当模式（``matches(assignment.node, 请求的节点)``），
+所以持有 ``*`` 或 ``team.acme.*`` 的人本来就握有那棵子树下的每个具体节点。因此绑定与持有之间
+**两个方向都算命中** —— 只判「绑定覆盖持有」会让 Team owner 这种持有 ``team.<id>.*`` 的人
+在具体节点绑定上被判成「没有」，而 ``sync`` 会据此把他的角色撤掉。
 """
 
 from __future__ import annotations
@@ -53,16 +58,27 @@ def is_valid_pattern(pattern: str) -> bool:
     return True
 
 
-def matches(pattern: str, node: str) -> bool:
-    """``node`` 是否被 ``pattern`` 覆盖。两边都按小写比较。"""
+def covers(pattern: str, node: str) -> bool:
+    """``pattern`` 是否覆盖 ``node``：``*`` 覆盖全部，``x.*`` 覆盖 ``x.`` 下的整棵子树。"""
     normalized = pattern.strip().lower()
     candidate = node.strip().lower()
     if not normalized or not candidate:
         return False
-    if not normalized.endswith(f".{WILDCARD}"):
-        return normalized == candidate
-    prefix = normalized[: -len(WILDCARD)]  # 保留末尾的点，如 'team.acme.'
-    return candidate.startswith(prefix) and len(candidate) > len(prefix)
+    if normalized == WILDCARD:
+        return True
+    if normalized.endswith(f".{WILDCARD}"):
+        prefix = normalized[: -len(WILDCARD)]  # 保留末尾的点，如 'team.acme.'
+        return candidate.startswith(prefix) and len(candidate) > len(prefix)
+    return normalized == candidate
+
+
+def matches(pattern: str, node: str) -> bool:
+    """绑定 ``pattern`` 与某人持有的 ``node`` 是否算命中 —— **两个方向都算**，两边都按小写比较。
+
+    绑定 ``team.acme.*`` 对持有 ``team.acme.packages.read`` 的人成立（绑定覆盖持有）；
+    持有 ``team.acme.*`` 或 ``*`` 的人对绑定 ``team.acme.packages.read`` 同样成立（持有覆盖绑定）。
+    """
+    return covers(pattern, node) or covers(node, pattern)
 
 
 def desired_role_ids(

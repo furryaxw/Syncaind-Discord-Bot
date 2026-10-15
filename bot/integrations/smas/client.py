@@ -9,7 +9,7 @@
   响应同形状并带 ``ok`` / ``error``；**服务端推送没有 ``request_id``**，靠这个区分。
 * Team 上下文：**用逐请求的 ``x-team-id`` 头**（信封 ``headers`` 里），不要用连接级的 ``select``。
   这里每次 RPC 开一条 WS 连接，而 ``select`` 的作用域是**连接**——它会在连接关闭时丢掉。
-  读**他人**权限（``system.users.permissions``）必须带 System Team（``"system"``），
+  读**他人**权限（``system.permission_assignments``）必须带 System Team（``"system"``），
   否则服务端会以 ``team_context_required`` / ``permission_denied`` 拒掉。
 
 会话过期（``invalid_session``）会自动重换一次再重试 —— 服务号的密钥是常驻配置，

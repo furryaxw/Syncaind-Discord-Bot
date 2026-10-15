@@ -28,6 +28,7 @@ from tests.discord_fakes import GUILD_ID, MODERATOR_ID
         "team.acme.packages.read",
         "team.acme.*",
         "team.*",
+        "*",  # 根通配：绑定它可以覆盖全部节点
         "system-teams.read",
         "team.acme.0_9-x.read",
         "Team.Acme.Read",  # 大小写不敏感：会被规范成小写
@@ -102,6 +103,25 @@ def test_unrelated_patterns_do_not_match() -> None:
     assert not matches("system.*", "team.acme.packages.read")
 
 
+def test_a_held_wildcard_matches_a_concrete_binding() -> None:
+    """持有方是通配时同样成立：服务端把授权行当模式判，`team.acme.*` 本来就含那个具体节点。"""
+    assert matches("team.acme.packages.read", "team.acme.*")
+    assert matches("team.acme.packages.read", "team.*")
+    assert matches("system.users.read", "*")
+
+
+def test_a_binding_on_the_root_wildcard_matches_everything() -> None:
+    assert matches("*", "system.users.read")
+    assert matches("*", "team.acme.example_mod.manage")
+
+
+def test_the_reverse_direction_keeps_the_boundaries() -> None:
+    """反向命中只在真覆盖时成立：别的 Team、以及前缀本身都不算。"""
+    assert not matches("team.beta.packages.read", "team.acme.*")
+    assert not matches("team.acme.packages.read", "team.acme")
+    assert not matches("team.acme.packages.read", "team.acme.packages")
+
+
 # ---------------------------------------------------------------- 该有哪些角色
 
 
@@ -127,6 +147,15 @@ def test_one_node_can_map_to_several_roles() -> None:
 
 def test_no_nodes_means_no_roles() -> None:
     assert desired_role_ids([], [("team.acme.*", 111)]) == set()
+
+
+def test_a_held_wildcard_yields_the_bound_roles() -> None:
+    """持有 `team.acme.*`（Team owner）或 `*`（服务端 owner）的人，具体节点的绑定也要给他。"""
+    bindings = [("team.acme.packages.read", 111), ("team.acme.example_mod.manage", 222)]
+
+    assert desired_role_ids(["team.acme.*"], bindings) == {111, 222}
+    assert desired_role_ids(["*"], bindings) == {111, 222}
+    assert desired_role_ids(["team.beta.*"], bindings) == set()
 
 
 # ---------------------------------------------------------------- 存储

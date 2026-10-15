@@ -123,7 +123,7 @@ async def test_team_context_goes_in_the_request_headers() -> None:
     websocket = FakeWebSocket(make_responder())
     session = FakeHttpSession(websocket=websocket)
 
-    await make_client(session).call("read", "system.users.permissions", team_id=SYSTEM_TEAM_ID)
+    await make_client(session).call("read", "system.permission_assignments", team_id=SYSTEM_TEAM_ID)
 
     assert websocket.sent[0]["headers"] == {"x-team-id": "system"}
 
@@ -143,7 +143,7 @@ async def test_an_error_response_becomes_an_access_error() -> None:
     session = FakeHttpSession(websocket=websocket)
 
     with pytest.raises(AccessError) as excinfo:
-        await make_client(session).call("read", "system.users.permissions")
+        await make_client(session).call("read", "system.permission_assignments")
 
     assert excinfo.value.code == "permission_denied"
 
@@ -175,7 +175,7 @@ async def test_other_errors_are_not_retried() -> None:
     session = FakeHttpSession(websocket=websocket)
 
     with pytest.raises(AccessError):
-        await make_client(session).call("read", "system.users.permissions")
+        await make_client(session).call("read", "system.permission_assignments")
 
     assert len(session.posts) == 1
 
