@@ -28,6 +28,15 @@
   "feed.sync.nothing": "**{repo}**: no releases newer than the cursor.",
   "feed.sync.title": "Synced",
   "feed.truncated": "*(truncated; full notes via the link on the title)*",
+  "commands.feed.panel_description": "GitHub release feeds panel: list, add, remove, sync",
+  "feed.panel.title": "GitHub release feeds",
+  "feed.panel.body": "{count} repository feed(s) configured.",
+  "feed.panel.list": "Subscriptions",
+  "feed.panel.add": "Add repository",
+  "feed.panel.remove": "Remove subscription",
+  "feed.panel.sync": "Sync now",
+  "feed.panel.repo": "Repository (owner/name or URL)",
+  "feed.panel.not_yours": "This panel is not yours.",
   "modules.github_feed.description": "Push GitHub release notes per repository into a chosen thread or channel (binding backfills the history).",
   "modules.github_feed.name": "GitHub release feed"
 }

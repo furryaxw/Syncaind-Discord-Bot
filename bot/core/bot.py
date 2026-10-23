@@ -16,6 +16,7 @@ from .framework import FrameworkCog
 from .help import HelpCog
 from .i18n import I18n, discover_module_locales
 from .loader import ModuleLoader
+from .services import ServiceRegistry
 from .store import GuildSettingsStore, ModuleStateStore
 from .translator import CatalogTranslator
 from .web import BotWebServer
@@ -40,6 +41,7 @@ class SyncaindBot(commands.Bot):
         )
         self.settings = settings
         self.log = logger or logging.getLogger("bot")
+        self.services = ServiceRegistry()
         self.i18n = I18n(
             LOCALES_DIR,
             settings.default_locale,
@@ -50,7 +52,6 @@ class SyncaindBot(commands.Bot):
         self.db = Database(settings.database_path, logger=self.log.getChild("db"))
         self.guild_settings = GuildSettingsStore(
             self.db,
-            default_mod_log_channel_id=settings.mod_log_channel_id,
             logger=self.log.getChild("settings"),
         )
         self.module_state = ModuleStateStore(self.db)

@@ -11,24 +11,24 @@ from discord import app_commands
 from bot.core.i18n import I18n
 from bot.core.translator import CatalogTranslator, localized
 
-DESCRIPTION = "Kick a member from the server"
+DESCRIPTION = "Show information about a member"
 
 
 async def test_chinese_client_gets_chinese_metadata(i18n: I18n) -> None:
     translator = CatalogTranslator(i18n)
 
     translated = await translator.translate(
-        localized(DESCRIPTION, "commands.kick.description"), discord.Locale.chinese, None
+        localized(DESCRIPTION, "commands.userinfo.description"), discord.Locale.chinese, None
     )
 
-    assert translated == "把成员踢出服务器"
+    assert translated == "查看成员信息"
 
 
 async def test_english_client_gets_english_metadata(i18n: I18n) -> None:
     translator = CatalogTranslator(i18n)
 
     translated = await translator.translate(
-        localized(DESCRIPTION, "commands.kick.description"), discord.Locale.american_english, None
+        localized(DESCRIPTION, "commands.userinfo.description"), discord.Locale.american_english, None
     )
 
     assert translated == DESCRIPTION
@@ -38,7 +38,7 @@ async def test_other_locales_fall_back_to_english(i18n: I18n) -> None:
     translator = CatalogTranslator(i18n)
 
     translated = await translator.translate(
-        localized(DESCRIPTION, "commands.kick.description"), discord.Locale.french, None
+        localized(DESCRIPTION, "commands.userinfo.description"), discord.Locale.french, None
     )
 
     assert translated == DESCRIPTION
@@ -61,6 +61,6 @@ async def test_strings_without_a_key_are_left_alone(i18n: I18n) -> None:
     """
     translator = CatalogTranslator(i18n)
 
-    translated = await translator.translate(app_commands.locale_str("kick"), discord.Locale.chinese, None)
+    translated = await translator.translate(app_commands.locale_str("userinfo"), discord.Locale.chinese, None)
 
     assert translated is None

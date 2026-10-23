@@ -146,7 +146,7 @@ async def test_load_all_only_warns_about_dependencies_it_could_not_resolve(
 ) -> None:
     """启动日志里不该出现「依赖未加载」——那只是本轮还没轮到，不是故障。
 
-    实测过一次：每次启动都打一行「模块 cases 未加载：依赖未加载：moderation」，
+    实测过一次：每次启动都打一行「模块 aaa_consumer 未加载：依赖未加载：zzz_provider」，
     看着像故障，其实第二轮就加载成功了。真的缺依赖（``missing_dep``）仍然要告警。
     """
     loader = make_loader(FakeBot(), module_state_store)

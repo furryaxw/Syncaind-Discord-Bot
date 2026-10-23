@@ -21,6 +21,7 @@ async def setup(bot: Any) -> None:
     from bot.integrations.github import ReleaseTargetStore, WatcherCursorStore
 
     from .cog import GitHubFeedCog
+    from .panel import FeedPanelCog
 
     logger = bot.log.getChild("github_feed")
     cog = GitHubFeedCog(
@@ -29,5 +30,7 @@ async def setup(bot: Any) -> None:
         cursor=WatcherCursorStore(bot.db, logger=logger),
     )
     await bot.add_cog(cog)
+    bot.tree.remove_command("feed")
+    await bot.add_cog(FeedPanelCog(bot, cog))
     # 配了监听服务就起常驻订阅；没配就只靠 /feed sync。
     cog.start_watching()

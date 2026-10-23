@@ -4,7 +4,7 @@ discord.py 2.x 的命令元数据本地化走 :class:`app_commands.Translator`�
 ``name_localizations``。走这条路的好处是：命令元数据与运行时文案共用 ``locales/*.json``，
 不会出现「界面中文、命令英文」这种两套语言的状态。
 
-用法是 ``localized("Kick a member from the server", "commands.kick.description")``：
+用法是 ``localized("Show information about a member", "commands.userinfo.description")``：
 第一个参数是英文默认值（Discord 也要求命令名的 message 必须是这个名字本身），第二个是文案键。
 
 **只翻译描述与参数说明，不翻译命令名。** 命令名的国际化会让肌肉记忆和外部脚本失效，

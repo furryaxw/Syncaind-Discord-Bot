@@ -59,7 +59,8 @@ class BotWebServer:
         self._routes.pop((method.upper(), path), None)
 
     def build_app(self) -> web.Application:
-        app = web.Application()
+        # HTML 表单会传附件；给单个请求留出 32 MB 上限（字段级 8 MB / 总计 24 MB 在解析层再卡）。
+        app = web.Application(client_max_size=32 * 1024 * 1024)
         app.router.add_route("*", "/{tail:.*}", self._dispatch)
         return app
 
@@ -80,7 +81,7 @@ class BotWebServer:
         except OSError as exc:
             # 端口被占用之类的：**入站端点起不来不该让机器人起不来**。
             # 需要它的那条路径会自己发现（is_running 为 False），
-            # /link github 会退回设备流，其余功能完全不受影响。
+            # /github 面板会退回设备流，其余功能完全不受影响。
             self._logger.error(
                 "入站端点没起来（%s:%s，%s）。web flow 会退回设备流；其余功能不受影响。",
                 self._host,

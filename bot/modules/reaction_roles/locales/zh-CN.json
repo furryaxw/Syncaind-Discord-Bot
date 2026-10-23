@@ -30,5 +30,18 @@
   "reaction_roles.notify.removed": "➖ 你在 **{guild}** 失去了角色 **{role}**。重新点一下那个表情可以再拿回来。",
   "reaction_roles.remove.done": "已解绑 {emoji}（[消息]({url})）。",
   "reaction_roles.remove.done_title": "已解绑",
-  "reaction_roles.remove.not_found": "这条消息上没有绑定 {emoji}。"
+  "reaction_roles.remove.not_found": "这条消息上没有绑定 {emoji}。",
+  "commands.reactionrole.panel_description": "表情角色面板：列表、添加、删除、清空",
+  "reaction_roles.panel.title": "表情角色",
+  "reaction_roles.panel.body": "当前有 {count} 条绑定。",
+  "reaction_roles.panel.list": "绑定列表",
+  "reaction_roles.panel.add": "添加绑定",
+  "reaction_roles.panel.remove": "删除绑定",
+  "reaction_roles.panel.clear": "清空消息",
+  "reaction_roles.panel.message_id": "消息 ID",
+  "reaction_roles.panel.emoji": "表情",
+  "reaction_roles.panel.pick_role": "选择角色",
+  "reaction_roles.panel.no_roles": "没有可分配的角色。",
+  "reaction_roles.panel.role_gone": "这个角色已经不存在了。",
+  "reaction_roles.panel.not_yours": "这个面板不是给你的。"
 }

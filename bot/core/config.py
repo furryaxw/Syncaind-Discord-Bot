@@ -17,7 +17,6 @@ ENV_NAMES: dict[str, str] = {
     "discord_token": "DISCORD_TOKEN",
     "guild_id": "GUILD_ID",
     "owner_id": "OWNER_ID",
-    "mod_log_channel_id": "MOD_LOG_CHANNEL_ID",
     "database_path": "DATABASE_PATH",
     "log_dir": "LOG_DIR",
     "log_level": "LOG_LEVEL",
@@ -28,11 +27,10 @@ ENV_NAMES: dict[str, str] = {
     "github_token": "GITHUB_TOKEN",
     "watcher_base_url": "WATCHER_BASE_URL",
     "watcher_api_token": "WATCHER_API_TOKEN",
-    "access_base_url": "ACCESS_BASE_URL",
-    "access_service_id": "ACCESS_SERVICE_ID",
-    "access_service_secret": "ACCESS_SERVICE_SECRET",
     "web_host": "WEB_HOST",
     "web_port": "WEB_PORT",
+    "public_base_url": "PUBLIC_BASE_URL",
+    "form_token_secret": "FORM_TOKEN_SECRET",
 }
 
 REQUIRED_ENV_NAMES: tuple[str, ...] = ("DISCORD_TOKEN", "GUILD_ID", "OWNER_ID")
@@ -51,7 +49,6 @@ class Settings(BaseSettings):
     discord_token: str
     guild_id: int
     owner_id: int
-    mod_log_channel_id: int | None = None
     database_path: Path = Path("data/bot.db")
     log_dir: Path = Path("data/logs")
     log_level: str = "INFO"
@@ -68,15 +65,12 @@ class Settings(BaseSettings):
     # 订阅走 SSE，断线重连的退避用服务端帧里给的 retry，所以这里没有轮询间隔。
     watcher_base_url: str | None = None
     watcher_api_token: str | None = None
-    # SMAS：机器人以**自己的服务号**身份连过去（不代替用户行事）。
-    # 三项齐了才会启用节点→角色同步与发 key；缺了就明确说「未配置」，不会静默什么都不做。
-    access_base_url: str | None = None
-    access_service_id: str = "discord-bot"
-    access_service_secret: str | None = None
-    # 入站 HTTP 端点（web flow 的 OAuth 回调、以后的 webhook 都用它）。
+    # 入站 HTTP 端点（web flow 的 OAuth 回调、表单 HTML 都用它）。
     # 默认绑 127.0.0.1：对外暴露交给反向代理或隧道，机器人自己不开公网监听。
     web_host: str = "127.0.0.1"
     web_port: int = 0
+    public_base_url: str | None = None
+    form_token_secret: str | None = None
 
     @field_validator("discord_token")
     @classmethod

@@ -17,7 +17,6 @@ from tests.discord_fakes import (
     FakeInteraction,
     FakeThread,
     build_guild,
-    run_command,
     setup_bot,
 )
 from tests.github_fakes import (
@@ -135,7 +134,7 @@ async def test_add_backfills_oldest_first(settings: Any, monkeypatch: pytest.Mon
     bot, guild, thread, _source = await prepare(settings, releases=releases, monkeypatch=monkeypatch)
     try:
         interaction = interaction_for(guild, thread)
-        await run_command(bot, "feed add", interaction, repo=REPO)
+        await bot.cogs["GitHubFeedCog"].feed_add.callback(bot.cogs["GitHubFeedCog"], interaction, repo=REPO)
 
         target = await ReleaseTargetStore(bot.db).get(GUILD_ID, REPO)
     finally:
@@ -153,7 +152,7 @@ async def test_add_defaults_to_where_the_command_runs(settings: Any, monkeypatch
         settings, releases=[make_release(1, repo=REPO)], monkeypatch=monkeypatch
     )
     try:
-        await run_command(bot, "feed add", interaction_for(guild, thread), repo=REPO)
+        await bot.cogs["GitHubFeedCog"].feed_add.callback(bot.cogs["GitHubFeedCog"], interaction_for(guild, thread), repo=REPO)
         target = await ReleaseTargetStore(bot.db).get(GUILD_ID, REPO)
     finally:
         await bot.db.close()
@@ -164,7 +163,7 @@ async def test_add_defaults_to_where_the_command_runs(settings: Any, monkeypatch
 async def test_add_accepts_a_full_url(settings: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     bot, guild, thread, source = await prepare(settings, releases=[], monkeypatch=monkeypatch)
     try:
-        await run_command(bot, "feed add", interaction_for(guild, thread), repo=f"https://github.com/{REPO}")
+        await bot.cogs["GitHubFeedCog"].feed_add.callback(bot.cogs["GitHubFeedCog"], interaction_for(guild, thread), repo=f"https://github.com/{REPO}")
     finally:
         await bot.db.close()
 
@@ -175,7 +174,7 @@ async def test_add_says_when_there_are_no_releases(settings: Any, monkeypatch: p
     bot, guild, thread, _source = await prepare(settings, releases=[], monkeypatch=monkeypatch)
     try:
         interaction = interaction_for(guild, thread)
-        await run_command(bot, "feed add", interaction, repo=REPO)
+        await bot.cogs["GitHubFeedCog"].feed_add.callback(bot.cogs["GitHubFeedCog"], interaction, repo=REPO)
         target = await ReleaseTargetStore(bot.db).get(GUILD_ID, REPO)
     finally:
         await bot.db.close()
@@ -188,7 +187,7 @@ async def test_add_rejects_a_malformed_repo(settings: Any, monkeypatch: pytest.M
     bot, guild, thread, _source = await prepare(settings, releases=[], monkeypatch=monkeypatch)
     try:
         with pytest.raises(UserError) as excinfo:
-            await run_command(bot, "feed add", interaction_for(guild, thread), repo="not a repo")
+            await bot.cogs["GitHubFeedCog"].feed_add.callback(bot.cogs["GitHubFeedCog"], interaction_for(guild, thread), repo="not a repo")
     finally:
         await bot.db.close()
 
@@ -201,7 +200,7 @@ async def test_add_reports_a_fetch_failure(settings: Any, monkeypatch: pytest.Mo
     )
     try:
         with pytest.raises(UserError) as excinfo:
-            await run_command(bot, "feed add", interaction_for(guild, thread), repo=REPO)
+            await bot.cogs["GitHubFeedCog"].feed_add.callback(bot.cogs["GitHubFeedCog"], interaction_for(guild, thread), repo=REPO)
     finally:
         await bot.db.close()
 
@@ -219,7 +218,7 @@ async def test_every_post_disables_mentions(settings: Any, monkeypatch: pytest.M
         settings, releases=[make_release(1, repo=REPO, body=body)], monkeypatch=monkeypatch
     )
     try:
-        await run_command(bot, "feed add", interaction_for(guild, thread), repo=REPO)
+        await bot.cogs["GitHubFeedCog"].feed_add.callback(bot.cogs["GitHubFeedCog"], interaction_for(guild, thread), repo=REPO)
     finally:
         await bot.db.close()
 
@@ -237,7 +236,7 @@ async def test_a_long_body_is_truncated(settings: Any, monkeypatch: pytest.Monke
         settings, releases=[make_release(1, repo=REPO, body=body)], monkeypatch=monkeypatch
     )
     try:
-        await run_command(bot, "feed add", interaction_for(guild, thread), repo=REPO)
+        await bot.cogs["GitHubFeedCog"].feed_add.callback(bot.cogs["GitHubFeedCog"], interaction_for(guild, thread), repo=REPO)
     finally:
         await bot.db.close()
 
@@ -251,7 +250,7 @@ async def test_an_empty_body_says_so(settings: Any, monkeypatch: pytest.MonkeyPa
         settings, releases=[make_release(1, repo=REPO)], monkeypatch=monkeypatch
     )
     try:
-        await run_command(bot, "feed add", interaction_for(guild, thread), repo=REPO)
+        await bot.cogs["GitHubFeedCog"].feed_add.callback(bot.cogs["GitHubFeedCog"], interaction_for(guild, thread), repo=REPO)
     finally:
         await bot.db.close()
 
@@ -267,7 +266,7 @@ async def test_a_body_that_is_only_a_marker_says_there_are_no_notes(
         settings, releases=[make_release(1, repo=REPO, body=body)], monkeypatch=monkeypatch
     )
     try:
-        await run_command(bot, "feed add", interaction_for(guild, thread), repo=REPO)
+        await bot.cogs["GitHubFeedCog"].feed_add.callback(bot.cogs["GitHubFeedCog"], interaction_for(guild, thread), repo=REPO)
     finally:
         await bot.db.close()
 
@@ -283,7 +282,7 @@ async def test_a_pushed_release_hides_the_metadata_marker(settings: Any, monkeyp
         settings, releases=[make_release(1, repo=REPO, body=body)], monkeypatch=monkeypatch
     )
     try:
-        await run_command(bot, "feed add", interaction_for(guild, thread), repo=REPO)
+        await bot.cogs["GitHubFeedCog"].feed_add.callback(bot.cogs["GitHubFeedCog"], interaction_for(guild, thread), repo=REPO)
     finally:
         await bot.db.close()
 
@@ -302,7 +301,7 @@ async def test_wrapper_text_follows_the_server_locale(settings: Any, monkeypatch
         settings, releases=[make_release(1, repo=REPO)], monkeypatch=monkeypatch, locale=None
     )
     try:
-        await run_command(bot, "feed add", interaction_for(guild, thread), repo=REPO)
+        await bot.cogs["GitHubFeedCog"].feed_add.callback(bot.cogs["GitHubFeedCog"], interaction_for(guild, thread), repo=REPO)
     finally:
         await bot.db.close()
 
@@ -314,7 +313,7 @@ async def test_a_prerelease_is_marked(settings: Any, monkeypatch: pytest.MonkeyP
         settings, releases=[make_release(1, repo=REPO, prerelease=True)], monkeypatch=monkeypatch
     )
     try:
-        await run_command(bot, "feed add", interaction_for(guild, thread), repo=REPO)
+        await bot.cogs["GitHubFeedCog"].feed_add.callback(bot.cogs["GitHubFeedCog"], interaction_for(guild, thread), repo=REPO)
     finally:
         await bot.db.close()
 
@@ -338,7 +337,7 @@ async def test_posting_without_permission_says_which_channel(settings: Any, monk
         bot.cogs["GitHubFeedCog"]._source = FakeReleaseSource([make_release(1, repo=REPO)])
 
         with pytest.raises(UserError) as excinfo:
-            await run_command(bot, "feed add", interaction_for(guild, thread), repo=REPO)
+            await bot.cogs["GitHubFeedCog"].feed_add.callback(bot.cogs["GitHubFeedCog"], interaction_for(guild, thread), repo=REPO)
     finally:
         await bot.db.close()
 
@@ -529,7 +528,7 @@ async def test_sync_posts_only_what_is_newer_than_the_cursor(settings: Any, monk
         await store.add(GUILD_ID, repo=REPO, channel_id=THREAD_ID, cursor_release_id=2, created_by=MODERATOR_ID)
         thread._sent.clear()
 
-        await run_command(bot, "feed sync", interaction, repo=REPO)
+        await bot.cogs["GitHubFeedCog"].feed_sync.callback(bot.cogs["GitHubFeedCog"], interaction, repo=REPO)
         target = await store.get(GUILD_ID, REPO)
     finally:
         await bot.db.close()
@@ -549,7 +548,7 @@ async def test_sync_says_nothing_when_up_to_date(settings: Any, monkeypatch: pyt
             GUILD_ID, repo=REPO, channel_id=THREAD_ID, cursor_release_id=3, created_by=MODERATOR_ID
         )
 
-        await run_command(bot, "feed sync", interaction, repo=REPO)
+        await bot.cogs["GitHubFeedCog"].feed_sync.callback(bot.cogs["GitHubFeedCog"], interaction, repo=REPO)
     finally:
         await bot.db.close()
 
@@ -561,7 +560,7 @@ async def test_sync_requires_a_binding(settings: Any, monkeypatch: pytest.Monkey
     bot, guild, thread, _source = await prepare(settings, releases=[], monkeypatch=monkeypatch)
     try:
         with pytest.raises(UserError) as excinfo:
-            await run_command(bot, "feed sync", interaction_for(guild, thread), repo=REPO)
+            await bot.cogs["GitHubFeedCog"].feed_sync.callback(bot.cogs["GitHubFeedCog"], interaction_for(guild, thread), repo=REPO)
     finally:
         await bot.db.close()
 
@@ -577,7 +576,7 @@ async def test_list_is_empty_by_default(settings: Any) -> None:
         guild = build_guild()
         interaction = interaction_for(guild, guild.channels[0])
 
-        await run_command(bot, "feed list", interaction)
+        await bot.cogs["GitHubFeedCog"].feed_list.callback(bot.cogs["GitHubFeedCog"], interaction)
     finally:
         await bot.db.close()
 
@@ -594,7 +593,7 @@ async def test_list_shows_the_target_and_cursor(settings: Any) -> None:
         )
         interaction = interaction_for(guild, thread)
 
-        await run_command(bot, "feed list", interaction)
+        await bot.cogs["GitHubFeedCog"].feed_list.callback(bot.cogs["GitHubFeedCog"], interaction)
     finally:
         await bot.db.close()
 
@@ -614,7 +613,7 @@ async def test_remove_unbinds(settings: Any) -> None:
         )
         interaction = interaction_for(guild, thread)
 
-        await run_command(bot, "feed remove", interaction, repo=REPO)
+        await bot.cogs["GitHubFeedCog"].feed_remove.callback(bot.cogs["GitHubFeedCog"], interaction, repo=REPO)
 
         remaining = await ReleaseTargetStore(bot.db).get(GUILD_ID, REPO)
     finally:
@@ -629,8 +628,26 @@ async def test_remove_says_when_it_was_not_watched(settings: Any) -> None:
     try:
         guild = build_guild()
         with pytest.raises(UserError) as excinfo:
-            await run_command(bot, "feed remove", interaction_for(guild, guild.channels[0]), repo=REPO)
+            await bot.cogs["GitHubFeedCog"].feed_remove.callback(bot.cogs["GitHubFeedCog"], interaction_for(guild, guild.channels[0]), repo=REPO)
     finally:
         await bot.db.close()
 
     assert excinfo.value.key == "feed.not_watched"
+
+
+async def test_the_panel_is_the_only_feed_command(settings) -> None:
+    bot = await setup_bot(settings)
+    try:
+        command = bot.tree.get_command("feed")
+        assert command is not None
+        assert not hasattr(command, "commands"), "旧子命令组不应再注册"
+        panel = bot.get_cog("FeedPanelCog")
+        assert panel is not None
+        guild = build_guild()
+        interaction = FakeInteraction(user=guild.get_member(MODERATOR_ID), guild=guild)
+
+        await panel.feed.callback(panel, interaction)
+    finally:
+        await bot.db.close()
+
+    assert interaction.response._messages[-1]["embed"].title == "GitHub release 订阅"

@@ -23,7 +23,7 @@ from tests.conftest import GUILD_ID
 MODERATOR_ID = 400
 TARGET_ID = 300
 BOT_ID = 500
-MOD_LOG_CHANNEL_ID = 555
+CHANNEL_ID = 555
 MESSAGE_ID = 8888
 
 MADE_UP_TIME = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -48,6 +48,10 @@ class FakeResponse:
         if content is not None:
             kwargs["content"] = content
         self._messages.append(kwargs)
+
+    async def edit_message(self, **kwargs: Any) -> None:
+        """组件交互里编辑原消息；真实 ``InteractionResponse`` 有这个方法。"""
+        self._edits.append(kwargs)
 
     async def defer(self, **kwargs: Any) -> None:
         if self._defer_error is not None:
@@ -482,7 +486,7 @@ class FakePayload:
         member: Any,
         emoji: str,
         message_id: int = MESSAGE_ID,
-        channel_id: int = MOD_LOG_CHANNEL_ID,
+        channel_id: int = CHANNEL_ID,
         guild_id: int = GUILD_ID,
     ) -> None:
         self.guild_id = guild_id
@@ -511,6 +515,8 @@ class FakeInteraction:
         self.user = user
         self.guild = guild
         self.channel = channel if channel is not None else (guild.channels[0] if guild.channels else None)
+        self.guild_id = guild.id if guild is not None else None
+        self.channel_id = self.channel.id if self.channel is not None else None
         self.locale = locale
         self.command = None
         # 真实 Interaction 有 message（按钮/组件交互时是那条消息）。
@@ -541,10 +547,10 @@ def build_guild(
     target_position: int = 10,
     moderator_permissions: discord.Permissions | None = None,
     extra_members: list[FakeMember] | None = None,
-    with_mod_log_channel: bool = True,
+    with_channel: bool = True,
 ) -> FakeGuild:
     """一个典型的测试服务器：owner/mod 一人、目标成员一人、机器人一个。"""
-    channels = [FakeChannel(MOD_LOG_CHANNEL_ID)] if with_mod_log_channel else []
+    channels = [FakeChannel(CHANNEL_ID)] if with_channel else []
     members = [
         FakeMember(MODERATOR_ID, 90, name="moderator", permissions=moderator_permissions),
         FakeMember(TARGET_ID, target_position, name="target"),
@@ -569,7 +575,6 @@ async def setup_bot(settings: Any) -> SyncaindBot:
     """
     bot = SyncaindBot(settings=settings)
     await bot.prepare()
-    await bot.guild_settings.update(GUILD_ID, mod_log_channel_id=MOD_LOG_CHANNEL_ID)
     return bot
 
 

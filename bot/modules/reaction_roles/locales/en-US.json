@@ -30,5 +30,18 @@
   "reaction_roles.notify.removed": "➖ You no longer have the role **{role}** in **{guild}**. React again to take it back.",
   "reaction_roles.remove.done": "Unbound {emoji} ([message]({url})).",
   "reaction_roles.remove.done_title": "Unbound",
-  "reaction_roles.remove.not_found": "There is no {emoji} binding on that message."
+  "reaction_roles.remove.not_found": "There is no {emoji} binding on that message.",
+  "commands.reactionrole.panel_description": "Reaction role panel: list, add, remove, clear",
+  "reaction_roles.panel.title": "Reaction roles",
+  "reaction_roles.panel.body": "{count} binding(s) configured.",
+  "reaction_roles.panel.list": "Bindings",
+  "reaction_roles.panel.add": "Add binding",
+  "reaction_roles.panel.remove": "Remove binding",
+  "reaction_roles.panel.clear": "Clear message",
+  "reaction_roles.panel.message_id": "Message ID",
+  "reaction_roles.panel.emoji": "Emoji",
+  "reaction_roles.panel.pick_role": "Pick a role",
+  "reaction_roles.panel.no_roles": "No assignable roles.",
+  "reaction_roles.panel.role_gone": "That role no longer exists.",
+  "reaction_roles.panel.not_yours": "This panel is not yours."
 }

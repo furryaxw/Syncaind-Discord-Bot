@@ -9,7 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from bot.core.checks import can_act_on, can_manage_role
+from bot.core.checks import can_manage_role
 from bot.core.errors import UserError
 from bot.core.translator import localized
 from bot.core.ui import add_fields, info_embed
@@ -227,36 +227,6 @@ class ToolsCog(commands.Cog):
             )
             LOGGER.debug("已授予的机器人权限：%s", bot_granted)
 
-        denial = can_act_on(
-            actor=guild.get_member(interaction.user.id),
-            target=target,
-            bot_member=guild.me,
-            guild_owner_id=guild.owner_id,
-        )
-        verdict = (
-            t(interaction, "tools.permissions.punish_ok")
-            if denial is None
-            else t(interaction, denial, target=target.display_name)
-        )
-        embed.add_field(
-            name=t(interaction, "tools.permissions.punish_verdict"),
-            value=verdict,
-            inline=False,
-        )
-
-        # 「没有可处罚对象」是最常见的困惑来源（自己不能罚自己、owner 不能罚），
-        # 所以把它单独说清楚，而不是让用户对着一句「不能对自己执行」发呆。
-        candidates = _punishable_members(guild, actor_id=interaction.user.id)
-        embed.add_field(
-            name=t(interaction, "tools.permissions.targets"),
-            value=(
-                t(interaction, "tools.permissions.targets_value", count=len(candidates))
-                if candidates
-                else t(interaction, "tools.permissions.no_target")
-            ),
-            inline=False,
-        )
-
         # ``is_default()`` 是 Role 的方法，不是 Member 的——这里要问的是「最高角色是不是 @everyone」。
         top_role = target.top_role
         if not top_role.is_default():
@@ -283,18 +253,6 @@ class ToolsCog(commands.Cog):
         if interaction.guild is None:
             raise UserError("errors.guild_only")
         return interaction.guild
-
-
-def _punishable_members(guild: discord.Guild, *, actor_id: int) -> list[discord.Member]:
-    """当前真正可以被处罚的成员。
-
-    排除发起者自己、机器人自己与服务器拥有者——这三种身份都会被守卫挡住，
-    所以要测处罚命令的人必须知道「不是我的权限不够，而是没有目标」。
-    """
-    excluded = {actor_id, guild.owner_id}
-    if guild.me is not None:
-        excluded.add(guild.me.id)
-    return [member for member in guild.members if member.id not in excluded]
 
 
 def _split_permissions(

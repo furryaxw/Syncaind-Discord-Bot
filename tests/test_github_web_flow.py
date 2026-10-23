@@ -24,7 +24,6 @@ from tests.discord_fakes import (
     TARGET_ID,
     FakeInteraction,
     build_guild,
-    run_command,
     setup_bot,
 )
 from tests.github_fakes import FakeTransport
@@ -242,7 +241,7 @@ def test_pages_escape_their_arguments() -> None:
     assert "&lt;img src=x" in html
 
 
-# ---------------------------------------------------------------- /link github 的选择逻辑
+# ---------------------------------------------------------------- 绑定方式的选择逻辑
 
 
 async def test_web_method_says_what_is_missing(settings, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -254,7 +253,7 @@ async def test_web_method_says_what_is_missing(settings, monkeypatch: pytest.Mon
         enable_endpoint(bot, monkeypatch)
 
         with pytest.raises(UserError) as excinfo:
-            await run_command(bot, "link github", interaction, method="web")
+            await bot.cogs["GitHubBridgeCog"].start_binding(interaction, "web")
     finally:
         await bot.db.close()
 
@@ -269,7 +268,7 @@ async def test_web_method_explains_when_the_endpoint_is_off(settings, monkeypatc
         interaction = make_interaction(guild)
 
         with pytest.raises(UserError) as excinfo:
-            await run_command(bot, "link github", interaction, method="web")
+            await bot.cogs["GitHubBridgeCog"].start_binding(interaction, "web")
     finally:
         await bot.db.close()
 
@@ -296,7 +295,7 @@ async def test_auto_falls_back_to_the_device_flow(settings, monkeypatch: pytest.
             polls=[],
         )
 
-        await run_command(bot, "link github", interaction, method="auto")
+        await bot.cogs["GitHubBridgeCog"].start_binding(interaction, "auto")
 
         assert "WXYZ-9999" in last_message(interaction).description
         await drain(cog)
@@ -324,7 +323,7 @@ async def test_explicit_device_method_ignores_a_configured_web_flow(settings, mo
             polls=[],
         )
 
-        await run_command(bot, "link github", interaction, method="device")
+        await bot.cogs["GitHubBridgeCog"].start_binding(interaction, "device")
 
         assert "WXYZ-9999" in last_message(interaction).description
         await drain(cog)
@@ -342,7 +341,7 @@ async def test_web_method_replies_with_an_authorize_button(settings, monkeypatch
         cog = bot.cogs["GitHubBridgeCog"]
         cog._transport = FakeTransport()
 
-        await run_command(bot, "link github", interaction, method="web")
+        await bot.cogs["GitHubBridgeCog"].start_binding(interaction, "web")
 
         sent = interaction.response._messages[-1]
         assert "github.com/login/oauth/authorize" in sent["embed"].description

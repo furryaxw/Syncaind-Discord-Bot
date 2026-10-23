@@ -17,7 +17,6 @@ from tests.discord_fakes import (
     TARGET_ID,
     FakeInteraction,
     build_guild,
-    run_command,
     setup_bot,
 )
 from tests.github_fakes import make_device_transport
@@ -122,7 +121,7 @@ async def test_bindings_are_scoped_to_the_guild(db) -> None:
     assert await store.get(GUILD_ID + 1, MODERATOR_ID) is None
 
 
-# ---------------------------------------------------------------- /link github
+# ---------------------------------------------------------------- 绑定流程
 
 
 async def test_link_without_configuration_explains_what_to_do(settings) -> None:
@@ -132,7 +131,7 @@ async def test_link_without_configuration_explains_what_to_do(settings) -> None:
         interaction = make_interaction(guild)
 
         with pytest.raises(UserError) as excinfo:
-            await run_command(bot, "link github", interaction)
+            await bot.cogs["GitHubBridgeCog"].start_binding(interaction)
     finally:
         await bot.db.close()
 
@@ -151,7 +150,7 @@ async def test_link_shows_a_code_and_then_binds(settings, monkeypatch: pytest.Mo
             polls=[{"access_token": "tok"}], user={"id": GITHUB_ID, "login": GITHUB_LOGIN}, interval=0
         )
 
-        await run_command(bot, "link github", interaction)
+        await bot.cogs["GitHubBridgeCog"].start_binding(interaction)
 
         instructions = last_message(interaction).description
         assert "ABCD-1234" in instructions
@@ -181,7 +180,7 @@ async def test_link_waits_through_pending_polls(settings, monkeypatch: pytest.Mo
             interval=0,
         )
 
-        await run_command(bot, "link github", interaction)
+        await bot.cogs["GitHubBridgeCog"].start_binding(interaction)
         await drain_background_tasks(cog)
 
         account = await GitHubAccountStore(bot.db).get(GUILD_ID, MODERATOR_ID)
@@ -207,7 +206,7 @@ async def test_link_reports_that_the_account_is_taken(settings, monkeypatch: pyt
             polls=[{"access_token": "tok"}], user={"id": GITHUB_ID, "login": GITHUB_LOGIN}, interval=0
         )
 
-        await run_command(bot, "link github", interaction)
+        await bot.cogs["GitHubBridgeCog"].start_binding(interaction)
         await drain_background_tasks(cog)
 
         holder_bound = await GitHubAccountStore(bot.db).get(GUILD_ID, MODERATOR_ID)
@@ -229,7 +228,7 @@ async def test_link_reports_a_fatal_device_flow_error(settings, monkeypatch: pyt
         cog = bot.cogs["GitHubBridgeCog"]
         cog._transport = make_device_transport(polls=[{"error": "access_denied"}], interval=0)
 
-        await run_command(bot, "link github", interaction)
+        await bot.cogs["GitHubBridgeCog"].start_binding(interaction)
         await drain_background_tasks(cog)
     finally:
         await bot.db.close()
@@ -246,7 +245,7 @@ async def test_show_says_when_nothing_is_linked(settings) -> None:
         guild = build_guild()
         interaction = make_interaction(guild)
 
-        await run_command(bot, "link show", interaction)
+        await bot.get_cog("GitHubPanelCog")._show_member(interaction, guild.get_member(MODERATOR_ID))
     finally:
         await bot.db.close()
 
@@ -263,7 +262,7 @@ async def test_show_prints_the_binding(settings) -> None:
         guild = build_guild()
         interaction = make_interaction(guild)
 
-        await run_command(bot, "link show", interaction)
+        await bot.get_cog("GitHubPanelCog")._show_member(interaction, guild.get_member(MODERATOR_ID))
     finally:
         await bot.db.close()
 
@@ -279,7 +278,7 @@ async def test_looking_at_someone_else_requires_manage_roles(settings) -> None:
         interaction = make_interaction(guild, permissions=discord.Permissions(send_messages=True))
 
         with pytest.raises(UserError) as excinfo:
-            await run_command(bot, "link show", interaction, member=guild.get_member(TARGET_ID))
+            await bot.get_cog("GitHubPanelCog")._show_member(interaction, guild.get_member(TARGET_ID))
     finally:
         await bot.db.close()
 
@@ -295,69 +294,19 @@ async def test_manage_roles_can_look_at_someone_else(settings) -> None:
         guild = build_guild()
         interaction = make_interaction(guild)
 
-        await run_command(bot, "link show", interaction, member=guild.get_member(TARGET_ID))
+        await bot.get_cog("GitHubPanelCog")._show_member(interaction, guild.get_member(TARGET_ID))
     finally:
         await bot.db.close()
 
     assert OTHER_GITHUB_LOGIN in last_message(interaction).description
 
 
-# ---------------------------------------------------------------- /link remove
-
-
-async def test_remove_unlinks(settings) -> None:
+async def test_the_module_registers_the_github_panel(settings) -> None:
     bot = await setup_bot(settings)
     try:
-        await GitHubAccountStore(bot.db).link(
-            GUILD_ID, discord_user_id=MODERATOR_ID, github_user_id=GITHUB_ID, github_login=GITHUB_LOGIN
-        )
-        guild = build_guild()
-        interaction = make_interaction(guild)
-
-        await run_command(bot, "link remove", interaction)
-
-        remaining = await GitHubAccountStore(bot.db).get(GUILD_ID, MODERATOR_ID)
+        names = {command.name for command in bot.tree.get_commands()}
     finally:
         await bot.db.close()
 
-    assert remaining is None
-    assert last_message(interaction).title == "已解除"
-
-
-async def test_remove_says_when_there_was_nothing(settings) -> None:
-    bot = await setup_bot(settings)
-    try:
-        guild = build_guild()
-        interaction = make_interaction(guild)
-
-        with pytest.raises(UserError) as excinfo:
-            await run_command(bot, "link remove", interaction)
-    finally:
-        await bot.db.close()
-
-    assert excinfo.value.key == "github.remove.not_linked"
-
-
-async def test_remove_of_someone_else_requires_manage_roles(settings) -> None:
-    bot = await setup_bot(settings)
-    try:
-        guild = build_guild()
-        interaction = make_interaction(guild, permissions=discord.Permissions(send_messages=True))
-
-        with pytest.raises(UserError) as excinfo:
-            await run_command(bot, "link remove", interaction, member=guild.get_member(TARGET_ID))
-    finally:
-        await bot.db.close()
-
-    assert excinfo.value.key == "errors.missing_permissions"
-
-
-async def test_the_module_registers_the_link_group(settings) -> None:
-    bot = await setup_bot(settings)
-    try:
-        group = next(command for command in bot.tree.get_commands() if command.name == "link")
-        names = {child.name for child in group.commands}  # type: ignore[attr-defined]
-    finally:
-        await bot.db.close()
-
-    assert names == {"github", "show", "remove"}
+    assert "github" in names
+    assert "link" not in names

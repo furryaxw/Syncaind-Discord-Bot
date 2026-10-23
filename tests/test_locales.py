@@ -1,7 +1,7 @@
 """文案完整性：合并后的两份目录键集一致、代码里用到的键都存在、没有跨文件重复键。
 
 这类测试的价值在于「防漂移」——加了新文案键却忘了另一门语言、键名打错一个字母、
-两个模块用了同一个键，都会在这里被拦住，而不是等到线上某个用户看到 `moderation.done.title` 这样的原文。
+两个模块用了同一个键，都会在这里被拦住，而不是等到线上某个用户看到 `keys.bad_batch` 这样的原文。
 """
 
 from __future__ import annotations
@@ -29,13 +29,8 @@ SOURCE_DIR = REPO_ROOT / "bot"
 KEY_PREFIXES = (
     "errors.",
     "common.",
-    "actions.",
     "framework.",
     "permissions.",
-    "moderation.",
-    "cases.",
-    "channels.",
-    "roles.",
     "reaction_roles.",
     "tools.",
     "modules.",
@@ -43,24 +38,9 @@ KEY_PREFIXES = (
     "github.",
     "feed.",
     "keys.",
-    "access.",
-    "smas.",
     "forms.",
 )
 KEY_PATTERN = re.compile(r"""["']([A-Za-z_]+(?:\.[A-Za-z_]+)+)["']""")
-
-# 代码里用 f-string 拼出来的键，扫描器看不到，这里显式列出。
-ACTION_KEYS = (
-    "kick",
-    "ban",
-    "unban",
-    "timeout",
-    "warn",
-    "purge",
-    "auto_timeout",
-    "auto_kick",
-    "auto_ban",
-)
 
 
 def all_cog_types() -> tuple[type, ...]:
@@ -71,30 +51,28 @@ def all_cog_types() -> tuple[type, ...]:
     （``test_cog_registry_covers_every_module``），别只靠人记。
     """
     from bot.modules.access_keys.cog import AccessKeysCog
-    from bot.modules.access_roles.cog import AccessRolesCog
-    from bot.modules.cases.cog import CasesCog
-    from bot.modules.channels.cog import ChannelsCog
     from bot.modules.forms.cog import FormsCog
+    from bot.modules.forms.panel import FormPanelCog
     from bot.modules.github_bridge.cog import GitHubBridgeCog
+    from bot.modules.github_bridge.panel import GitHubPanelCog
     from bot.modules.github_feed.cog import GitHubFeedCog
-    from bot.modules.moderation.cog import ModerationCog as RealModerationCog
+    from bot.modules.github_feed.panel import FeedPanelCog
     from bot.modules.reaction_roles.cog import ReactionRolesCog
-    from bot.modules.roles.cog import RolesCog
+    from bot.modules.reaction_roles.panel import ReactionRolePanelCog
 
     return (
         FrameworkCog,
         HelpCog,
-        RealModerationCog,
-        CasesCog,
-        ChannelsCog,
-        RolesCog,
         ReactionRolesCog,
+        ReactionRolePanelCog,
         ToolsCog,
         GitHubBridgeCog,
+        GitHubPanelCog,
         GitHubFeedCog,
+        FeedPanelCog,
         AccessKeysCog,
-        AccessRolesCog,
         FormsCog,
+        FormPanelCog,
     )
 
 
@@ -198,12 +176,6 @@ def test_every_key_used_in_source_exists(catalogs: dict[str, dict[str, str]]) ->
 
     assert used, "扫描器没扫到任何键，说明它自己坏了"
     missing = sorted(used - set(catalogs["en-US"]))
-    assert missing == []
-
-
-def test_action_keys_exist(catalogs: dict[str, dict[str, str]]) -> None:
-    missing = sorted(key for action in ACTION_KEYS if (key := f"actions.{action}") not in catalogs["en-US"])
-
     assert missing == []
 
 

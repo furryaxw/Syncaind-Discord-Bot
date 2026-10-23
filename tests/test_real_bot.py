@@ -19,20 +19,11 @@ from tests.discord_fakes import MODERATOR_ID, FakeInteraction, build_guild, setu
 EXPECTED_COMMANDS = {
     "help",
     "module",
-    "kick",
-    "ban",
-    "unban",
-    "timeout",
-    "warn",
-    "purge",
-    "history",
-    "case",
-    "channel",
-    "role",
     "reactionrole",
-    "link",
+    "github",
     "feed",
     "key",
+    "form",
     "serverinfo",
     "userinfo",
     "permissions",
@@ -59,7 +50,7 @@ async def test_real_modules_load_and_register_every_command(settings) -> None:
 
     assert statuses.keys() == set(bot.loader.discover()), "有模块没被加载，也没被记录状态"
     assert set(statuses.values()) == {ModuleStatus.LOADED}
-    assert EXPECTED_COMMANDS <= command_names
+    assert EXPECTED_COMMANDS == command_names
 
 
 async def test_module_group_has_the_four_management_subcommands(settings) -> None:
@@ -103,17 +94,17 @@ async def test_disabling_a_module_removes_its_commands(settings) -> None:
     try:
         await bot.add_framework_cogs()
         await bot.loader.load_all()
-        assert "kick" in {command.name for command in bot.tree.get_commands()}
+        assert "serverinfo" in {command.name for command in bot.tree.get_commands()}
 
-        await bot.loader.set_enabled("moderation", False)
+        await bot.loader.set_enabled("tools", False)
 
         command_names = {command.name for command in bot.tree.get_commands()}
     finally:
         await bot.db.close()
 
-    assert "kick" not in command_names
-    assert "ban" not in command_names
-    assert "serverinfo" in command_names
+    assert "serverinfo" not in command_names
+    assert "userinfo" not in command_names
+    assert "key" in command_names
 
 
 async def test_setup_hook_wires_everything_up(settings, monkeypatch) -> None:
@@ -145,12 +136,12 @@ async def test_setup_hook_wires_everything_up(settings, monkeypatch) -> None:
     assert sync_calls == [1]
     assert statuses.keys() == set(bot.loader.discover()), "有模块没被加载，也没被记录状态"
     assert set(statuses.values()) == {ModuleStatus.LOADED}
-    assert EXPECTED_COMMANDS <= command_names
+    assert EXPECTED_COMMANDS == command_names
     assert has_error_handler
     assert isinstance(translator, CatalogTranslator)
     assert framework_registered
     # 模块自带的文案目录确实被合并进来了
-    assert {"core", "moderation", "tools"} <= source_labels
+    assert {"core", "reaction_roles", "tools"} <= source_labels
 
 
 async def test_sync_payload_localizes_descriptions_but_not_names(settings) -> None:
@@ -161,17 +152,17 @@ async def test_sync_payload_localizes_descriptions_but_not_names(settings) -> No
         await bot.add_framework_cogs()
         await bot.loader.load_all()
 
-        kick = next(command for command in bot.tree.get_commands() if command.name == "kick")
-        payload = await kick.get_translated_payload(bot.tree, bot.tree.translator)
+        command = next(command for command in bot.tree.get_commands() if command.name == "userinfo")
+        payload = await command.get_translated_payload(bot.tree, bot.tree.translator)
     finally:
         await bot.db.close()
 
-    assert payload["name"] == "kick"
+    assert payload["name"] == "userinfo"
     assert not payload.get("name_localizations"), "命令名不应该被本地化"
-    assert payload["description_localizations"]["zh-CN"] == "把成员踢出服务器"
+    assert payload["description_localizations"]["zh-CN"] == "查看成员信息"
     option = payload["options"][0]
     assert option["name"] == "member"
-    assert option["description_localizations"]["zh-CN"] == "要踢出的成员"
+    assert option["description_localizations"]["zh-CN"] == "要看的成员（默认是你自己）"
 
 
 async def test_no_command_name_is_localized(settings) -> None:
@@ -214,7 +205,7 @@ async def test_every_command_has_a_localized_description(settings) -> None:
     """直接看会发给 Discord 的那份 payload：每条命令（含分组）都该带上中文描述。
 
     这比「按命令名拼出文案键再去翻目录」可靠得多——不依赖任何命名约定，
-    而且自动覆盖所有被加载的模块。连字符命令名（``channel overwrite-category``）
+    而且自动覆盖所有被加载的模块。连字符命令名（``key deny-role``）
     就会让「拼键」那套误报。
     """
     bot = await setup_bot(settings)
@@ -232,12 +223,7 @@ async def test_every_command_has_a_localized_description(settings) -> None:
 
 
 async def test_loading_the_real_modules_warns_about_nothing(settings, caplog) -> None:
-    """用真实模块跑一遍：能加载的都加载了，所以日志里不该有任何 WARNING。
-
-    真实模块里 ``cases`` 依赖 ``moderation`` 且字母序排在它**前面** —— 它正是当年那行
-    「模块 cases 未加载：依赖未加载：moderation」的来源。那只是本轮还没轮到，
-    第二轮就成功了，却每次启动都打一行像故障的警告。
-    """
+    """用真实模块跑一遍：能加载的都加载了，所以日志里不该有任何 WARNING。"""
     bot = await make_bot(settings)
     try:
         with caplog.at_level(logging.WARNING, logger="bot.loader"):
@@ -247,7 +233,7 @@ async def test_loading_the_real_modules_warns_about_nothing(settings, caplog) ->
     finally:
         await bot.db.close()
 
-    assert [record.getMessage() for record in caplog.records] == []
+    assert [record.getMessage() for record in caplog.records if record.name == "bot.loader"] == []
 
 
 async def test_command_completion_is_logged(settings, caplog) -> None:

@@ -10,9 +10,9 @@ import pytest
 from bot.core.errors import UserError
 from bot.modules.reaction_roles.service import ReactionRoleService
 from tests.discord_fakes import (
+    CHANNEL_ID,
     GUILD_ID,
     MESSAGE_ID,
-    MOD_LOG_CHANNEL_ID,
     MODERATOR_ID,
     TARGET_ID,
     FakeInteraction,
@@ -21,7 +21,6 @@ from tests.discord_fakes import (
     FakeRole,
     add_message,
     build_guild,
-    run_command,
     setup_bot,
 )
 
@@ -43,7 +42,7 @@ async def seed_mapping(bot: Any, *, emoji: str = "👍", role_id: int = ROLE_ID,
     await ReactionRoleService(bot.db).add(
         GUILD_ID,
         message_id=message_id,
-        channel_id=MOD_LOG_CHANNEL_ID,
+        channel_id=CHANNEL_ID,
         emoji=emoji,
         role_id=role_id,
         created_by=MODERATOR_ID,
@@ -67,7 +66,7 @@ async def test_mapping_round_trip(db) -> None:
     await service.add(
         GUILD_ID,
         message_id=MESSAGE_ID,
-        channel_id=MOD_LOG_CHANNEL_ID,
+        channel_id=CHANNEL_ID,
         emoji="👍",
         role_id=ROLE_ID,
         created_by=MODERATOR_ID,
@@ -76,7 +75,7 @@ async def test_mapping_round_trip(db) -> None:
     assert await service.role_id_for(GUILD_ID, MESSAGE_ID, "👍") == ROLE_ID
     assert await service.role_id_for(GUILD_ID, MESSAGE_ID, "👎") is None
     mapping = (await service.for_message(GUILD_ID, MESSAGE_ID))[0]
-    assert mapping.jump_url.endswith(f"/{GUILD_ID}/{MOD_LOG_CHANNEL_ID}/{MESSAGE_ID}")
+    assert mapping.jump_url.endswith(f"/{GUILD_ID}/{CHANNEL_ID}/{MESSAGE_ID}")
 
 
 async def test_adding_the_same_emoji_twice_replaces_the_role(db) -> None:
@@ -85,7 +84,7 @@ async def test_adding_the_same_emoji_twice_replaces_the_role(db) -> None:
         await service.add(
             GUILD_ID,
             message_id=MESSAGE_ID,
-            channel_id=MOD_LOG_CHANNEL_ID,
+            channel_id=CHANNEL_ID,
             emoji="👍",
             role_id=role_id,
             created_by=MODERATOR_ID,
@@ -106,7 +105,7 @@ async def test_clear_and_role_cleanup(db) -> None:
         await service.add(
             GUILD_ID,
             message_id=message_id,
-            channel_id=MOD_LOG_CHANNEL_ID,
+            channel_id=CHANNEL_ID,
             emoji=emoji,
             role_id=role_id,
             created_by=MODERATOR_ID,
@@ -129,7 +128,7 @@ async def test_add_stores_a_mapping(settings) -> None:
         role = add_role(guild)
         interaction = make_interaction(guild, channel=channel)
 
-        await run_command(bot, "reactionrole add", interaction, message_id=str(MESSAGE_ID), emoji="👍", role=role)
+        await bot.cogs["ReactionRolesCog"].add.callback(bot.cogs["ReactionRolesCog"], interaction, message_id=str(MESSAGE_ID), emoji="👍", role=role)
 
         mappings = await ReactionRoleService(bot.db).for_message(GUILD_ID, MESSAGE_ID)
     finally:
@@ -148,8 +147,12 @@ async def test_add_accepts_a_custom_emoji_and_normalises_it(settings) -> None:
         role = add_role(guild)
         interaction = make_interaction(guild, channel=channel)
 
-        await run_command(
-            bot, "reactionrole add", interaction, message_id=str(MESSAGE_ID), emoji="<:party:123>", role=role
+        await bot.cogs["ReactionRolesCog"].add.callback(
+            bot.cogs["ReactionRolesCog"],
+            interaction,
+            message_id=str(MESSAGE_ID),
+            emoji="<:party:123>",
+            role=role,
         )
 
         mapping = (await ReactionRoleService(bot.db).for_message(GUILD_ID, MESSAGE_ID))[0]
@@ -169,7 +172,7 @@ async def test_add_rejects_a_bad_emoji(settings) -> None:
         interaction = make_interaction(guild, channel=channel)
 
         with pytest.raises(UserError) as excinfo:
-            await run_command(bot, "reactionrole add", interaction, message_id=str(MESSAGE_ID), emoji="", role=role)
+            await bot.cogs["ReactionRolesCog"].add.callback(bot.cogs["ReactionRolesCog"], interaction, message_id=str(MESSAGE_ID), emoji="", role=role)
     finally:
         await bot.db.close()
 
@@ -184,7 +187,7 @@ async def test_add_rejects_a_message_that_does_not_exist(settings) -> None:
         interaction = make_interaction(guild, channel=guild.channels[0])
 
         with pytest.raises(UserError) as excinfo:
-            await run_command(bot, "reactionrole add", interaction, message_id="123", emoji="👍", role=role)
+            await bot.cogs["ReactionRolesCog"].add.callback(bot.cogs["ReactionRolesCog"], interaction, message_id="123", emoji="👍", role=role)
     finally:
         await bot.db.close()
 
@@ -199,7 +202,7 @@ async def test_add_rejects_a_non_numeric_message_id(settings) -> None:
         interaction = make_interaction(guild, channel=guild.channels[0])
 
         with pytest.raises(UserError) as excinfo:
-            await run_command(bot, "reactionrole add", interaction, message_id="看这条", emoji="👍", role=role)
+            await bot.cogs["ReactionRolesCog"].add.callback(bot.cogs["ReactionRolesCog"], interaction, message_id="看这条", emoji="👍", role=role)
     finally:
         await bot.db.close()
 
@@ -217,7 +220,7 @@ async def test_add_refuses_when_the_bot_cannot_manage_roles(settings) -> None:
         interaction = make_interaction(guild, channel=channel, app_permissions=discord.Permissions(send_messages=True))
 
         with pytest.raises(UserError) as excinfo:
-            await run_command(bot, "reactionrole add", interaction, message_id=str(MESSAGE_ID), emoji="👍", role=role)
+            await bot.cogs["ReactionRolesCog"].add.callback(bot.cogs["ReactionRolesCog"], interaction, message_id=str(MESSAGE_ID), emoji="👍", role=role)
     finally:
         await bot.db.close()
 
@@ -234,7 +237,7 @@ async def test_add_refuses_a_role_above_the_bot(settings) -> None:
         interaction = make_interaction(guild, channel=channel)
 
         with pytest.raises(UserError) as excinfo:
-            await run_command(bot, "reactionrole add", interaction, message_id=str(MESSAGE_ID), emoji="👍", role=role)
+            await bot.cogs["ReactionRolesCog"].add.callback(bot.cogs["ReactionRolesCog"], interaction, message_id=str(MESSAGE_ID), emoji="👍", role=role)
     finally:
         await bot.db.close()
 
@@ -248,7 +251,7 @@ async def test_remove_deletes_the_mapping(settings) -> None:
         guild = build_guild()
         interaction = make_interaction(guild, channel=guild.channels[0])
 
-        await run_command(bot, "reactionrole remove", interaction, message_id=str(MESSAGE_ID), emoji="👍")
+        await bot.cogs["ReactionRolesCog"].remove.callback(bot.cogs["ReactionRolesCog"], interaction, message_id=str(MESSAGE_ID), emoji="👍")
 
         remaining = await ReactionRoleService(bot.db).for_message(GUILD_ID, MESSAGE_ID)
     finally:
@@ -265,7 +268,7 @@ async def test_remove_reports_a_missing_binding(settings) -> None:
         interaction = make_interaction(guild, channel=guild.channels[0])
 
         with pytest.raises(UserError) as excinfo:
-            await run_command(bot, "reactionrole remove", interaction, message_id=str(MESSAGE_ID), emoji="👍")
+            await bot.cogs["ReactionRolesCog"].remove.callback(bot.cogs["ReactionRolesCog"], interaction, message_id=str(MESSAGE_ID), emoji="👍")
     finally:
         await bot.db.close()
 
@@ -280,7 +283,7 @@ async def test_list_shows_bindings_and_marks_deleted_roles(settings) -> None:
         await seed_mapping(bot)
         interaction = make_interaction(guild, channel=guild.channels[0])
 
-        await run_command(bot, "reactionrole list", interaction, message_id=None)
+        await bot.cogs["ReactionRolesCog"].list_roles.callback(bot.cogs["ReactionRolesCog"], interaction, message_id=None)
 
         embed = last_message(interaction)
         assert embed.fields[0].name == "👍"
@@ -295,7 +298,7 @@ async def test_list_is_empty_at_first(settings) -> None:
         guild = build_guild()
         interaction = make_interaction(guild, channel=guild.channels[0])
 
-        await run_command(bot, "reactionrole list", interaction, message_id=None)
+        await bot.cogs["ReactionRolesCog"].list_roles.callback(bot.cogs["ReactionRolesCog"], interaction, message_id=None)
     finally:
         await bot.db.close()
 
@@ -311,7 +314,7 @@ async def test_clear_removes_every_binding_of_a_message(settings) -> None:
         await seed_mapping(bot, emoji="🎉", role_id=ROLE_ID)
         interaction = make_interaction(guild, channel=guild.channels[0])
 
-        await run_command(bot, "reactionrole clear", interaction, message_id=str(MESSAGE_ID))
+        await bot.cogs["ReactionRolesCog"].clear.callback(bot.cogs["ReactionRolesCog"], interaction, message_id=str(MESSAGE_ID))
 
         remaining = await ReactionRoleService(bot.db).for_message(GUILD_ID, MESSAGE_ID)
     finally:
@@ -499,3 +502,21 @@ async def test_a_role_above_the_bot_is_not_granted(settings, monkeypatch: pytest
     # 没能给上角色时也要告诉当事人，否则他只会觉得「点了没反应」
     assert target._calls == ["dm"]
     assert "没能给你角色" in target._dms[-1]
+
+
+async def test_the_panel_is_the_only_reactionrole_command(settings) -> None:
+    bot = await setup_bot(settings)
+    try:
+        command = bot.tree.get_command("reactionrole")
+        assert command is not None
+        assert not hasattr(command, "commands"), "旧子命令组不应再注册"
+        panel = bot.get_cog("ReactionRolePanelCog")
+        assert panel is not None
+        guild = build_guild()
+        interaction = FakeInteraction(user=guild.get_member(MODERATOR_ID), guild=guild)
+
+        await panel.reactionrole.callback(panel, interaction)
+    finally:
+        await bot.db.close()
+
+    assert interaction.response._messages[-1]["embed"].title == "表情角色"

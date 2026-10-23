@@ -11,11 +11,8 @@ import pytest
 
 from bot.core.errors import UserError
 from tests.discord_fakes import (
-    BOT_ID,
     MODERATOR_ID,
     TARGET_ID,
-    FakeChannel,
-    FakeGuild,
     FakeInteraction,
     FakeMember,
     build_guild,
@@ -106,58 +103,7 @@ async def test_permissions_runs_without_crashing(settings) -> None:
         await bot.db.close()
 
     embed = last_embed(interaction)
-    assert {"已拥有", "未拥有", "处罚层级判定", "可处罚的成员", "角色层级判定"} <= field_names(embed)
-
-
-async def test_permissions_says_a_member_can_be_punished(settings) -> None:
-    bot = await setup_bot(settings)
-    try:
-        guild = build_guild()
-        interaction = FakeInteraction(user=guild.get_member(MODERATOR_ID), guild=guild)
-
-        await run_command(bot, "permissions", interaction, member=guild.get_member(TARGET_ID))
-    finally:
-        await bot.db.close()
-
-    embed = last_embed(interaction)
-    assert field_value(embed, "处罚层级判定").startswith("✅")
-    assert field_value(embed, "可处罚的成员") == "1 个"
-
-
-async def test_permissions_explains_why_the_guild_owner_cannot_be_punished(settings) -> None:
-    bot = await setup_bot(settings)
-    try:
-        guild = build_guild(owner_id=TARGET_ID)
-        interaction = FakeInteraction(user=guild.get_member(MODERATOR_ID), guild=guild)
-
-        await run_command(bot, "permissions", interaction, member=guild.get_member(TARGET_ID))
-    finally:
-        await bot.db.close()
-
-    assert "服务器拥有者" in field_value(last_embed(interaction), "处罚层级判定")
-
-
-async def test_permissions_says_there_is_nobody_to_punish(settings) -> None:
-    """一人测试服里「没法测试 kick」的真正原因，要由机器人自己说出来。"""
-    bot = await setup_bot(settings)
-    try:
-        guild = FakeGuild(
-            owner_id=MODERATOR_ID,
-            members=[
-                FakeMember(MODERATOR_ID, 90, name="owner"),
-                FakeMember(BOT_ID, 80, name="bot", bot=True),
-            ],
-            channels=[FakeChannel(1)],
-        )
-        interaction = FakeInteraction(user=guild.get_member(MODERATOR_ID), guild=guild)
-
-        await run_command(bot, "permissions", interaction)
-    finally:
-        await bot.db.close()
-
-    value = field_value(last_embed(interaction), "可处罚的成员")
-    assert "没有可处罚的对象" in value
-    assert "第二个账号" in value
+    assert {"已拥有", "未拥有", "角色层级判定"} <= field_names(embed)
 
 
 async def test_permissions_lists_granted_and_missing(settings) -> None:

@@ -1,6 +1,6 @@
 # Syncaind Discord Bot
 
-用 `discord.py` 写的模块化 Discord 机器人：**服务器管理**（处罚、警告累计、案件记录、消息清理、频道与角色）、**服务器信息与权限诊断**、**GitHub 账号映射与 release 推送**、**SMAS 激活码发放与权限节点同步**，以及 **申请 / 收集 / 报名表单**。
+用 `discord.py` 写的模块化 Discord 机器人：**服务器信息与权限诊断**、**GitHub 账号映射与 release 推送**、**本地激活码池**，以及 **申请 / 收集 / 报名表单**。
 
 * 模块化：功能以 `bot/modules/<name>/` 下的自包含包形式挂载，可运行时启停与热重载
 * 命令：纯斜杠命令；界面语言按客户端语言在中文/英文之间自动切换
@@ -37,14 +37,13 @@ Linux / macOS 上把 `.venv\Scripts\` 换成 `.venv/bin/` 即可。
 2. 同一个页面的 **Privileged Gateway Intents** 里开启 **SERVER MEMBERS INTENT**。
    机器人需要成员数据做角色层级比对与成员信息；不开的话启动会直接报错并退出（退出码 `4`）。
 3. **OAuth2 → URL Generator** 勾选 `bot` 与 `applications.commands`，权限至少给：
-   `Kick Members`、`Ban Members`、`Moderate Members`、`Manage Messages`、`Embed Links`、`View Channels`。
+   `View Channels`、`Send Messages`、`Embed Links`、`Manage Roles`。
    生成的链接把机器人邀请进你的服务器。
-4. 拿三个 ID（Discord 客户端需开启「开发者模式」，右键即可复制）：
+4. 拿两个 ID（Discord 客户端需开启「开发者模式」，右键即可复制）：
    * 服务器 ID → `GUILD_ID`
    * 你自己的用户 ID → `OWNER_ID`
-   * 想把处罚日志发到哪个频道 → `MOD_LOG_CHANNEL_ID`（可选）
 
-> 机器人默认只出站连接 Discord；只有启用 GitHub web flow 时才会在本地监听一个端口（见「怎么让回调地址可达」）。`/purge` 按数量、成员与时间范围过滤，不需要 `MESSAGE_CONTENT` intent。
+> 机器人默认只出站连接 Discord；只有启用 GitHub web flow 时才会在本地监听一个端口（见「怎么让回调地址可达」）。
 
 ## 配置项
 
@@ -53,12 +52,11 @@ Linux / macOS 上把 `.venv\Scripts\` 换成 `.venv/bin/` 即可。
 | `DISCORD_TOKEN`              | ✅  | —             | 机器人 token                                                                                             |
 | `GUILD_ID`                   | ✅  | —             | 目标服务器。缺了会直接启动失败，避免命令被同步到全局                                                                            |
 | `OWNER_ID`                   | ✅  | —             | 你的用户 ID，用于 `/module` 等框架级命令                                                                           |
-| `MOD_LOG_CHANNEL_ID`         |    | 空             | 处罚日志频道；也可以在数据库里按服务器改                                                                                  |
 | `DATABASE_PATH`              |    | `data/bot.db` | SQLite 文件位置                                                                                           |
 | `LOG_DIR`                    |    | `data/logs`   | 日志目录，按天轮转，保留 30 天                                                                                     |
 | `LOG_LEVEL`                  |    | `INFO`        | `DEBUG` / `INFO` / `WARNING` / `ERROR`                                                                |
-| `DEFAULT_LOCALE`             |    | `en-US`       | 非中文客户端的回退语言；**私信通知（反应角色、处罚）也用它的语言**（私信里拿不到对方客户端语言），中文服务器建议填 `zh-CN`                                   |
-| `GITHUB_OAUTH_CLIENT_ID`     |    | 空             | OAuth App 的 `client_id`。留空不影响启动，只是 `/link github` 会提示未配置                                              |
+| `DEFAULT_LOCALE`             |    | `en-US`       | 非中文客户端的回退语言；**私信通知（反应角色、表单、发码）也用它的语言**（私信里拿不到对方客户端语言），中文服务器建议填 `zh-CN`                          |
+| `GITHUB_OAUTH_CLIENT_ID`     |    | 空             | OAuth App 的 `client_id`。留空不影响启动，只是 `/github` 面板会提示未配置                                              |
 | `GITHUB_OAUTH_CLIENT_SECRET` |    | 空             | **只有 web flow 需要**；务必保密（等价于应用身份）                                                                      |
 | `GITHUB_OAUTH_REDIRECT_URI`  |    | 空             | web flow 的公网回调地址；**必须与 OAuth App 里填的完全一致**                                                            |
 | `GITHUB_TOKEN`               |    | 空             | 读 release 用的令牌。建 classic PAT 时**一个 scope 都别勾**：公开仓库只读就够，泄露也改不了仓库，额度还从 60 次/小时提到 5000。留空也能用，仓库多了会撞匿名限流 |
@@ -66,9 +64,8 @@ Linux / macOS 上把 `.venv\Scripts\` 换成 `.venv/bin/` 即可。
 | `WATCHER_API_TOKEN`          |    | 空             | 监听服务对 `/api/*` 的令牌（`GHW_API_TOKEN`）。没带令牌的请求会被拒                                                        |
 | `WEB_HOST`                   |    | `127.0.0.1`   | 入站端点绑哪里。默认只绑本地，对外暴露交给隧道/反向代理                                                                          |
 | `WEB_PORT`                   |    | `0`           | 入站端点端口。**0 = 不启动**；web flow 需要它 > 0                                                                   |
-| `ACCESS_BASE_URL`            |    | 空             | SMAS 地址。与下面两项一起填才会启用 `/key` 与 `/access`；服务号在服务器侧要**被授权**（见 `.env.example` 的注释）                        |
-| `ACCESS_SERVICE_ID`          |    | `discord-bot` | 服务号 id，与服务器侧 `SMAS_SERVICE_ACCOUNTS` 的键一致                                                             |
-| `ACCESS_SERVICE_SECRET`      |    | 空             | 服务号密钥；务必保密                                                                                            |
+| `PUBLIC_BASE_URL`            |    | 空             | 表单 HTML 的公网根地址（例如 `https://bot.example.com`）；与 `FORM_TOKEN_SECRET` 一起填才会启用 `/f` 与 `/review`                |
+| `FORM_TOKEN_SECRET`          |    | 空             | 表单/审核链接的签名密钥；至少 32 字符，务必保密                                                                        |
 
 ## 命令
 
@@ -78,33 +75,21 @@ Linux / macOS 上把 `.venv\Scripts\` 换成 `.venv/bin/` 即可。
 |------------------|-----------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------|
 | 框架               | `/help`、`/help <命令>`                                                                                                        | 无                                                  |
 | 框架               | `/module list`、`/module enable\|disable\|reload <module>`                                                                   | 机器人 owner                                          |
-| `moderation`     | `/kick`、`/ban`、`/unban`、`/timeout`、`/warn`、`/purge`                                                                         | Kick / Ban / Moderate Members、Manage Messages      |
-| `cases`          | `/history [member] [limit]`、`/case view <编号>`、`/case revoke <编号> [理由]`                                                      | Moderate Members；**撤销按动作鉴权**：撤销 ban 另需 Ban Members |
-| `channels`       | `/channel create`、`delete`、`rename`、`lock`、`unlock`、`slowmode`、`overwrite`、`overwrite-category`                             | Manage Channels                                    |
-| `roles`          | `/role create`、`delete`、`rename`、`color`、`permissions`、`grant`、`revoke`、`info`                                              | Manage Roles                                       |
-| `reaction_roles` | `/reactionrole add`、`remove`、`list`、`clear`                                                                                 | Manage Roles                                       |
-| `github_bridge`  | `/link github [method]`、`/link show [member]`、`/link remove [member]`                                                       | 无（看/改**别人**的绑定需要 Manage Roles）                     |
-| `github_feed`    | `/feed add <仓库> [目标]`、`/feed list`、`/feed remove <仓库>`、`/feed sync <仓库>`                                                    | Manage Server                                      |
-| `access_keys`    | `/key drop <批次> <数量> <模式> [角色] [排除角色] [分钟] [team]`、`/key close <编号>`、`/key drops [数量]`、`/key entries <编号>`、`/key list <批次>`、`/key deny-role <角色>`、`/key allow-role <角色>` | Manage Server（点按钮参与不需要）                     |
-| `access_roles`   | `/access bind <节点> <角色>`、`/access unbind <节点> [角色]`、`/access list`、`/access sync [dry_run]`、`/access status <成员>`           | Manage Roles                                       |
-| `forms`          | `/form post <表单> [频道] [名额] [分钟]`、`/form close <发布编号>`、`/form bind <表单> [审核频道] [审核员角色] [通知频道] [发放角色]`、`/form list`、`/form results <表单> [状态] [条数]`、`/form submission <提交编号>`、`/form export <表单> [状态]` | Manage Server（填写与审核都走卡片上的按钮）                 |
+| `reaction_roles` | `/reactionrole`（面板：列表、添加、删除、清空）                                                                                    | Manage Roles                                       |
+| `github_bridge`  | `/github`（面板）、`/github get-member:<成员>`、`/github get-group:<角色>`、`/github check:<登录名或ID>`                            | 无（看/改**别人**的绑定需要 Manage Roles）                     |
+| `github_feed`    | `/feed`（面板：列表、添加、删除、同步）                                                                                          | Manage Server                                      |
+| `access_keys`    | `/key [file]`（导入后在面板里创建活动、入口、开奖、补发、导出）                                                                        | Manage Server（按钮参与不需要）                            |
+| `forms`          | `/form [form]`（面板：发布、绑定、结果、导出、恢复暂缓、我的提交）                                                                       | Manage Server（填写与审核走卡片/网页）                        |
 | `tools`          | `/serverinfo`、`/userinfo [member]`、`/permissions [member]`                                                                  | 无                                                  |
-
-命令名一律是英文且**不做本地化**（`/kick` 不会变成 `/踢出`）；描述与参数说明会按客户端语言切换。理由：命令名是肌肉记忆和外部脚本的锚点，而且本地化名称一旦不合 Discord 的命名规则会让整次同步失败。
 
 几条值得知道的行为：
 
-* **处罚动作**都会：落库（获得 case 编号）、尽力 DM 当事人、发一条 Embed 到 mod-log 频道。
-* **警告升级**：有效警告数达到 `warn_threshold`（默认 3）的整数倍时触发升级，动作为 `warn_action`（默认 `timeout`，可设 `kick` / `ban`），禁言时长取 `warn_timeout_minutes`（默认 60）。阈值设为 `0` 表示关闭自动升级。
-* **撤销会真的回滚**：ban → 解封，timeout → 解除禁言，warn → 该条警告不再计入累计。kick / purge 无法回滚，只做记录。Discord 侧回滚失败时**不会**标记成已撤销 —— 记录说撤销了、实际还封着，这种状态不能出现。
-* **锁定/解锁**：锁定是给 @everyone 加 `send_messages=False`；解锁是把这一项**恢复成继承**（而不是强制允许），所以上层规则继续生效。
-* **权限名**用 Discord 的权限位名（`send_messages`、`view_channel`、`manage_messages`…），多个用逗号或空格分隔。敲错名字会被明确拒绝，不会静默忽略。`/role permissions` **只改点名的权限位**；`/channel overwrite` 则是**整份替换**——没提到的位会退回「继承」，所以它的确认卡片会把该对象当前的 allow/deny 一并列出来。
 * **反应角色**绑定在消息上：成员点表情给角色、取消表情收角色。映射落库，重启后照样有效；角色被删掉时，那条规则会在下次有人点它时自动清理。
   由于点表情本身没有任何界面回应，机器人会给当事人**发一条私信**说明拿到/失去了哪个角色（给不上时也会说明原因）。私信的语言取服务器配置的语言，没配就用 `DEFAULT_LOCALE` —— **反应事件里拿不到对方的客户端语言**（那是交互才有的字段），所以想要中文提示就把 `.env` 里的 `DEFAULT_LOCALE` 改成 `zh-CN`。对方关了私信就静默跳过（记在日志里）。
-* **表单**（`forms`）有三种用途、共用同一套定义：**申请**走审核（通过 / 驳回 / 让他补充），**收集**提交即完成（可允许多份），**报名**提交即占名额、满了自动关。表单是**数据、而且不在仓库里**：放在数据目录的 `forms/`（即 `data/forms/<id>.json`，与数据库、附件同一个卷，不随部署被覆盖），一个文件一个表单，**文字也写在那个文件里**；`/module reload forms` 之后生效。审核频道、审核员角色、通知频道与发放角色用 `/form bind` 绑 —— 那些是服务器的身份，同样不该进代码。
-* **填写是多步弹窗**：一步最多 5 个空（Discord 的硬限制），每提交一步就落一次库，所以中途关掉客户端或机器人重启都不会丢；附件一提交就下载进 `data/attachments/`（Discord 给的下载链接会过期），过期草稿连附件一起清掉。
-* **审核在卡片上点按钮**，权限来自绑定的审核员角色（服务器主始终可以）。**通过后动作先做、状态后改**：发角色或通知失败时申请保持待审，再点一次就是重试，不会出现「记录说通过了、实际什么都没发生」。驳回与要求补充都要写理由并私信给申请人；结果用 `/form results` 看，**完整内容用 `/form submission <提交编号>` 读**（长答按页翻，不必导出），`/form export` 的 CSV 只用于导出（带 BOM，Excel 直接打得开）。申请人的附件转存到 `data/attachments/`，卡片与详情里只列文件名与大小。
-* **加一种表单**：把一个 `<id>.json`（字段、用途、文字、通过后做什么）放到 `data/forms/` → `/module reload forms` → `/form bind <表单> …` 绑频道与角色 → `/form post <表单>` 把卡片发出去。文件名必须等于 `id`，未知键会直接报错。问题写长一点就用「问题当标题（≤45 字符）+ 补充说明当副标题（≤100 字符）」：超了同样会报错，不会被悄悄截断。
+* **表单**（`forms`）有三种用途、共用同一套定义：**申请**走审核（通过 / 驳回 / 让他补充），**收集**提交即完成（可允许多份），**报名**提交即占名额、满了自动关。表单是**数据、而且不在仓库里**：放在数据目录的 `forms/`（即 `data/forms/<id>.json`，与数据库、附件同一个卷，不随部署被覆盖），一个文件一个表单；`/module reload forms` 之后生效。频道、角色、关联 key 活动用 `/form` 面板绑定。
+* **填写默认在浏览器里**：卡片按钮给一个 7 天有效的签名链接，打开 `/f` 单页 HTML；也支持 `data/forms/<id>.html` 自定义页面（必需 `{{action}}`、`{{csrf_field}}`）。附件一提交就落盘到 `data/attachments/`，单文件 8 MB、总计 24 MB。没有配置 `PUBLIC_BASE_URL` / `FORM_TOKEN_SECRET` 时回退旧的弹窗填写。
+* **审核**：卡片上的按钮走 Discord；配置齐全时还有「网页审核」给 6 小时链接，打开 `/review` 看待审队列、完整答案、下载附件并直接通过/驳回/要求补充。通过后动作先做、状态后改；key 库存不足时进入 `on_hold`，补货后在 `/form` 面板点「恢复暂缓」按 FIFO 补发。
+* **加一种表单**：把一个 `<id>.json`（字段、用途、文字、通过后做什么）放到 `data/forms/` → `/module reload forms` → `/form` 面板选表单 → 绑定 → 发布。文件名必须等于 `id`，未知键会直接报错。
 
 ## 部署
 
@@ -240,40 +225,30 @@ class GreetingCog(commands.Cog):
 * 两份文案目录的键集、占位符、空值完全对齐；代码里用到的键都存在；跨文件没有重复键
 * 命令元数据的翻译链路（`get_translated_payload` 产出的就是会发给 Discord 的那份 payload），
   并且**断言命令名没有被本地化**
-* 权限判定：owner 白名单、角色层级比对的全部拒绝分支、角色可改性
+* 权限判定：owner 白名单、角色层级比对的拒绝分支、角色可改性
 * 确认按钮：非发起者被拒、超时视为取消、「先点击再等待」不会挂起
-* 数据层：迁移幂等（新装一次建全）、事务回滚、设置与模块开关读写、case 编号自增、警告累计与升级判定
+* 数据层：迁移幂等（新装一次建全）、事务回滚、设置与模块开关读写
 * 真装配：用真正的 `SyncaindBot` 跑完整的 `setup_hook`（连库、迁移、注册错误处理与翻译器、挂框架命令、加载模块，
   只把联网的 `sync_commands` 换成桩），检查命令树、`/module` 子命令、停用后命令消失
-* moderation 命令处理器的完整链路：层级校验 → 确认（含拒绝）→ 调用 Discord API → case 落库 → mod-log → DM → 回复；
-  警告累计到阈值触发自动升级（timeout 与 kick 都测），阈值设 `0` 时关闭
-* tools 命令处理器的真实调用（`/serverinfo` `/userinfo` `/permissions`，含「没有可处罚对象」的提示）
+* tools 命令处理器的真实调用（`/serverinfo` `/userinfo` `/permissions`）
 * `/help`：按模块分组、owner 命令标注、详情页参数与权限、中文/英文两套文案、停用模块后命令消失
 * `/help` 展示的权限要求与真正生效的检查**逐条对齐**（声明少一项就该失败，多一项就该通过）
-* `cases`：处罚史的顺序与归属、撤销标记、**撤销警告后不再计入累计**、解封与解除禁言真的调到了 Discord、
-  撤销按动作鉴权（有 moderate_members 但没 ban_members 不能解封）、回滚失败时不标记撤销
-* `channels`：权限名解析（含中英标点、去重、错别字报错）、私有频道带上 @everyone 的隐藏覆盖、
-  删除需确认、锁定置 False / 解锁置 None、慢速模式归零、按分类批量应用
-* `roles`：颜色与成员列表解析、**权限位只改点名的那几项**、高于机器人的角色被拒、集成管理的角色被拒、
-  批量授予计入「已变更 / 无需变更 / 找不到」、移除角色
 * `reaction_roles`：映射落库与「同表情覆盖」、`fetch_message` 校验、事件真的给/收角色、
   机器人自己的反应与其他服务器的反应被忽略、角色被删时自动清理规则、角色高于机器人时不发放
 * 假对象不许发明真实 discord.py 类上不存在的属性
 * 单实例守卫：同进程第二次获取被拒、释放后可重来、锁被占用时仍读得到持有者 pid（Windows 上字节区间锁必须显式加锁）
 * GitHub 客户端：设备流的开始/等待/放慢/致命错误/成功五条路径，全部对着假 transport 跑；断言设备流请求里没有 `client_secret`
 * GitHub 映射表：绑定、覆盖、一个 GitHub 账号只能属于一个人、按登录名大小写不敏感反查、按服务器隔离
-* `/link` 三条命令的完整流程：未配置时的提示、拿到码之后就地更新、后台轮询真的绑上了、冲突与致命错误各自的说法、看/改别人的绑定需要 Manage Roles
+* `/github` 面板的完整流程：未配置时的提示、拿到码之后就地更新、后台轮询真的绑上了、冲突与致命错误各自的说法、看/改别人的绑定需要 Manage Roles
 * release 推送：绑定即回填且**按时间正序**、游标只前进（SQL 层钉住）、草稿被丢弃、缺字段不炸、分页到满页才翻页、404/403 各自的说法
 * release 推送的**外部文本处理**：每条消息都带 `allowed_mentions=none`（release notes 里写 `@everyone` 也不会生效）、超长正文截断、空正文有说法、预发布有标记
 * **机器标记清理**：`<!-- sp-compat {…} -->` 这类 HTML 注释被清掉（含多行、多条、行内、CRLF）；**没闭合的注释留着不动**；删掉独占一行的标记时**不合并上下两行**（免得破掉列表）；整条只有标记时走「没有填写说明」
-* `/feed sync` 只推游标之后的、没新的时说清楚；权限不足时指名是哪个频道
+* `/feed` 的「手动同步」只推游标之后的、没新的时说清楚；权限不足时指名是哪个频道
 * 监听服务消费面：**SSE 帧解析**（`retry:` / `id:` / 多行 `data:` / 心跳注释 / CRLF / 尾帧无空行 / **aiohttp 给的 bytes 行**）、订阅头带 `Last-Event-ID` 续传、服务端 `retry` 被采用并夹上限、非 JSON 帧只跳过不致命、**订阅按请求关掉总时限**（aiohttp 默认的 5 分钟总时限会把长连接掐断，而同一个 session 还在跑普通请求）
 * 日志层：访问日志里的 query string 被抹掉（OAuth 放在 query 里的一次性凭据不落盘），重复安装过滤器不会叠加
 * 监听服务语义：进流前的**区间检查**（被挤掉就转全量对账）、事件里没有 payload 时按链接里的 tag 回 GitHub 取正文、release 游标去重（重放不重推）、单条推失败不卡住整条订阅
 * access server 客户端：服务号换会话、错误码映射（**密钥不进错误文本**）、信封 RPC 的 `request_id` 关联、**跳过服务端推送**、`invalid_session` 自愈重试、超时、逐请求 Team 头
-* 有效节点拼接：`permissions`（系统作用域）∪ `assignments`（跨 Team），以及**读失败必须抛异常**（绝不退化成「他没有权限」）
 * 发码链路：**私信失败 → `release` 退码 + 撤登记 + 还名额**、并发抢名额不超发（一条 SQL 自增封顶）、**没绑 GitHub 一律拒绝**（命令与按钮两条路都拦）、一人一批一枚、开奖公告里不出现码、没人报名时一枚都不取、到点的活动会被后台开奖、**服务器黑名单与单次活动的排除角色都压过白名单**
-* 角色同步：**只动绑定表里出现过的角色**（别人手动发的角色永不被撤）、**读不到权限的人跳过而不是撤角色**（一次网络抖动不能把所有人角色撤光）、`dry_run` 只报告不动手、层级不够跳过并计数、不在服务器里的绑定对象跳过、来源要按 GitHub 数字 id 查（那张映射表就是桥梁）
 * 配置层：必填缺失、取值非法各自给出可读提示（不吐 pydantic 堆栈）；`.env.example` 与字段登记表必须覆盖每一个设置项
 * 加载器：能解析的依赖**不告警**（那一轮只是还没轮到），真的缺依赖才告警；`load_all` 顺序与字母序无关
 * 入站端点：路由按 `(method, path)` 分发、只服务已注册的路由、**绑定失败只是端点起不来**（不会把整个机器人拖下水）
@@ -299,9 +274,8 @@ bot/
 │   ├── loader.py          # 模块扫描/加载/热重载/失败隔离/依赖顺序
 │   ├── framework.py       # /module 命令
 │   ├── help.py            # /help：读命令树生成列表与详情
-│   ├── checks.py          # 权限与角色层级
-│   ├── permission_flags.py# 权限位名字的解析（频道与角色共用）
-│   ├── audit.py           # mod-log 投递 + 审计 reason（处罚与撤销共用）
+│   ├── checks.py          # 角色层级与 owner 白名单
+│   ├── audit.py           # 审计日志 reason
 │   ├── ui.py              # Embed 工厂 + 确认按钮
 │   ├── errors.py          # 全局错误处理
 │   ├── clock.py           # 统一时间与 ISO 解析
@@ -310,13 +284,12 @@ bot/
 │   └── module.py          # ModuleMeta 契约
 ├── integrations/                  # 不依赖 Discord 的外部集成
 │   ├── github/                    # 设备流/Web flow 客户端、映射表、release 来源、监听服务
-│   └── smas/                      # access server 客户端、节点匹配、绑定表、发码
+│   └── keypool/                   # 本地激活码池与发码活动
 ├── locales/{zh-CN,en-US}.json     # 核心文案（框架与跨模块词汇）
 └── modules/                       # 每个模块 = 代码 + 自己的 locales/
-    ├── moderation/  ├── cases/      ├── channels/
-    ├── roles/       ├── reaction_roles/  ├── tools/
-    ├── github_bridge/  ├── github_feed/
-    ├── access_keys/    ├── access_roles/
+    ├── reaction_roles/  ├── tools/
+    ├── github_bridge/   ├── github_feed/
+    ├── access_keys/
     └── forms/          # 代码；（表单定义是数据，放 data/forms/，不进仓库）
 deploy/{systemd,docker}/
 tests/
@@ -324,7 +297,7 @@ tests/
 
 ## GitHub 集成
 
-核心是**账号映射**（`/link github`）：把 Discord 用户对应到 GitHub 账号，其余功能都建立在这张映射表上。
+核心是**账号映射**（`/github` 面板）：把 Discord 用户对应到 GitHub 账号，其余功能都建立在这张映射表上。
 
 ### 两种授权方式
 
@@ -334,7 +307,7 @@ tests/
 | 需要 `client_secret` | **要** | 不要 |
 | 需要公网回调地址 | **要** | 不要 |
 
-`/link github` 默认 `method:auto`：**配置齐了走 web flow，否则自动退回设备流**（不会因为没配就报错）。想强制某一种就写 `method:web` 或 `method:device`。
+`/github` 面板的绑定按钮默认自动选：**配置齐了走 web flow，否则自动退回设备流**（不会因为没配就报错）。
 
 ### 前置准备（一次性）
 
@@ -347,11 +320,11 @@ tests/
 
 把某个仓库的 release notes 推到指定的**帖子或频道**，一个仓库对一个目标。
 
-1. 在**目标帖子/频道里**运行 `/feed add example/repo` —— 默认就绑在你运行命令的地方（也可以用 `target` 指定别处）。
+1. 在**目标帖子/频道里**运行 `/feed`，点「添加仓库」，输入 `example/repo` —— 默认就绑在你运行命令的地方。
 2. 绑定时会**把该仓库已有的 release 按时间顺序回填**进去，然后把游标停在新处。
-3. 之后**两个入口都能推新的**：常驻订阅你的监听服务（推荐，见下），或手动 `/feed sync <仓库>`。
+3. 之后**两个入口都能推新的**：常驻订阅你的监听服务（推荐，见下），或面板里的「手动同步」。
 
-管理：`/feed list` 看已订阅的仓库、游标与订阅状态，`/feed remove <仓库>` 取消订阅（已推的消息不动）。都需要 **Manage Server**。
+管理：`/feed` 面板可看订阅列表、游标与订阅状态，也可取消订阅（已推的消息不动）。都需要 **Manage Server**。
 
 #### 实时推送：接 gh-webhook-watcher（SSE）
 
@@ -365,7 +338,7 @@ WATCHER_API_TOKEN=<GHW_API_TOKEN>
 * 走 `/api/stream`，断开自动重连（退避基准取服务端帧里的 `retry:`，上限 60 秒），重连时带 `Last-Event-ID` 续传。
 * **进流之前先做一次区间检查**：SSE 不会告诉你「事件缓冲把游标挤掉了」，所以先用一次 `/api/events`（只取一个字段）确认没被挤掉；被挤掉就转去**全量对账**（按 GitHub API 把每个已订阅仓库的新 release 补齐）。
 * 事件里带 `payload` 时（监听服务开了 `GHW_INCLUDE_PAYLOAD`）直接用它的 release 正文；**没带就按事件链接里的 tag 去 GitHub 取** —— 两条路都能用，所以你不必为了这个改监听服务的配置。
-* 去重靠**每个目标的 release 游标**（不是事件游标）：事件重放、断线续传、服务重启都不会重复推送；一条推失败也不会推进游标，后面 `/feed sync` 还能补上。
+* 去重靠**每个目标的 release 游标**（不是事件游标）：事件重放、断线续传、服务重启都不会重复推送；一条推失败也不会推进游标，后面 `/feed` 的「手动同步」还能补上。
 * 我们自己那几句包装文案（「这个版本没有填写说明」「已截断」）**取服务器语言，没配就用 `DEFAULT_LOCALE`** —— 推送的消息没有交互对象，拿不到客户端语言。
 * **历史永远来自 GitHub API**（`ReleaseSource` 接口）：监听服务只负责「刚刚发生了什么」，它不存历史、也不补发停机期间的投递。换成别的实现只动一个类。
 
@@ -374,51 +347,24 @@ WATCHER_API_TOKEN=<GHW_API_TOKEN>
 * **release notes 是外部文本**：里面的 `@everyone` / 角色提及**一律不会生效**（发送时强制 `allowed_mentions=none`），超长正文会截断并留标题链接。
 * **机器标记不会漏到帖子里**：发布说明里的 HTML 注释（如 `<!-- sp-compat {…} -->`）在 GitHub 上看不见，而 Discord 不渲染 HTML、会当成明文，所以推送前会清掉**所有** HTML 注释。清空后如果正文只剩标记，就显示「这个版本没有填写说明」。
 
-## SMAS 集成
-
-机器人以**自己的服务号**身份连 access server（不代替用户行事），配置见 `.env.example` 的 `ACCESS_*`。**所有 SMAS 操作都要求先 `/link github`**（包括管理命令）—— SMAS 的身份就是 GitHub 账号，没绑就不知道该把码或角色记到谁头上。因此 `access_keys` 与 `access_roles` 都依赖 `github_bridge`：后者被停用时它们也不能假装能用。
-
 ### 发激活码（两种模式，都从按钮进）
 
 ```
-/key drop <批次> <数量> mode:抽奖      [role:角色] [deny_role:角色] [minutes:10] [team:id]
-/key drop <批次> <数量> mode:先到先得  [role:角色] [deny_role:角色] [team:id]
-/key close <编号>     # 立刻结束（抽奖会立即开奖）
-/key drops [数量]     # 最近的活动与编号（编号丢了就靠它找回）
-/key entries <编号>   # 抽奖的报名名单（谁报了名、什么时候）
-/key list <批次>      # 看这批发给了谁（只有前缀）
-/key deny-role <角色> # 持有该角色的人不能领取，也不能参与抽奖
-/key allow-role <角色>
+/key [file]   # 上传 .txt / .csv 导入码；不带文件打开面板
 ```
 
-* **抽奖**：发一条带「参与抽奖」按钮的消息 → 大家点 → 截止后随机抽 N 人 → 中奖者私信收到码，频道里只公布名单。
-* **先到先得**：发一条带「领取」按钮的消息 → 前 N 个点的人各得一枚；发满自动关掉按钮。
-* `role` 限定参与资格（不填=所有人），**每次由命令指定**；`deny_role` 是**这一次活动自己**的排除角色（只对这次生效，会写在活动消息的「参与资格」那行）；`/key deny-role` 维护的是**服务器级**黑名单。两层都在资格之前生效 —— **先排除，再看资格**。
+在 `/key` 面板里：
 
-设计上的几条：
+* 导入后建池，再建活动：1–10 个池、固定数量或跟随库存、抽奖或先到先得、资格/排除角色、截止时间。
+* 活动发 0–N 张入口卡片；抽奖点「参与抽奖」，先到先得点「领取」。
+* 抽奖截止后开奖；先到先得发满自动关。中奖/领取者**私信收到码**，频道里只出现前缀与人数。
+* 面板可进行中关闭、看记录、导出 CSV；DM 失败的码进入 24 小时补发窗口，只有失败的中奖者能补领。
 
-* **码只走私信**。频道消息、开奖公告、回执里**永远不出现完整的码**（只有前缀/人数），测试里有专门断言。
-* **取码是服务端原子的**（`take`），**先到先得的名额是一条 SQL 自增封顶**，所以并发点击既不会超发也不会发重。
-* **发不出去就还原**：对方关了私信时 → `release` 退码 + 撤登记 + **把名额还回去**，那枚码不会悬在「已发放但没人拿到」。
-* **开奖靠库里的状态驱动**（后台每 30 秒扫一次到点的活动），所以重启也不会漏掉该开奖的活动。**活动编号与报名名单都查得到**：编号只出现过一次（创建回执里），`/key drops` 把它找回；报名名单用 `/key entries <编号>` 看（先到先得没有名单，看谁领到了用 `/key list <批次>`）。
-* 一个 GitHub 账号只能绑一个人，所以「谁领到了哪一枚」永远有唯一的归属。
-
-### 权限节点 → 角色（`access_roles`）
-
-```
-/access bind <节点模式> <角色>   # 持有该节点的人给这个角色
-/access unbind <节点模式> [角色]  # 省略角色 = 解除该节点全部绑定（会先确认）
-/access list
-/access sync [dry_run]          # 立刻对齐；dry_run 只报告不动手
-/access status <成员>           # 他为什么有这些角色
-```
-
-粒度是**具体节点 → 角色**（节点末段可以写 `*`，例如 `team.acme.*`）。**SMAS 是唯一权威**：只读它、只往 Discord 写，绝不反过来改服务器上的授权；角色由服务器预先建好，机器人只做绑定。
-
-两条安全边界：
-
-* **只动绑定表里出现过的角色** —— 别人手动发的角色永远不会被这次同步撤掉。
-* **读失败不等于「他没有权限」** —— 某个成员的有效节点读不到（网络、权限、服务端拒绝）时跳过并如实计数，绝不按空集合去撤他的角色。
+* **资格**在每次活动上指定（不填=所有人）；服务器级黑名单在 `/key` 面板维护。两层都在资格之前生效 —— **先排除，再看资格**。
+* **码只走私信**。频道消息、开奖公告、回执里永远不出现完整的码。
+* **取码是服务端原子的**，并发点击不会超发或发重；DM 失败会整批退回。
+* **开奖靠库里的状态驱动**（后台每 30 秒扫一次），重启不会漏。
+* 一个 GitHub 账号只能绑一个人，所以“谁领到了哪一枚”永远有唯一归属。
 
 ## License
 

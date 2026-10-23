@@ -17,6 +17,9 @@ async def setup(bot: Any) -> None:
     from bot.integrations.github import GitHubAccountStore
 
     from .cog import GitHubBridgeCog
+    from .panel import GitHubPanelCog
 
     store = GitHubAccountStore(bot.db, logger=bot.log.getChild("github"))
-    await bot.add_cog(GitHubBridgeCog(bot, store))
+    bridge = GitHubBridgeCog(bot, store)
+    await bot.add_cog(bridge)
+    await bot.add_cog(GitHubPanelCog(bot, bridge, store))

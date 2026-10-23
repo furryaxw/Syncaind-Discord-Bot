@@ -13,7 +13,7 @@ REQUIRED = ("DISCORD_TOKEN", "GUILD_ID", "OWNER_ID")
 
 @pytest.fixture(autouse=True)
 def _clear_required_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in (*REQUIRED, "MOD_LOG_CHANNEL_ID"):
+    for name in REQUIRED:
         monkeypatch.delenv(name, raising=False)
 
 
@@ -56,7 +56,7 @@ def test_blank_values_are_reported(tmp_path) -> None:
 def test_valid_config_is_loaded(tmp_path) -> None:
     env = tmp_path / ".env"
     env.write_text(
-        "DISCORD_TOKEN=abc\nGUILD_ID=123\nOWNER_ID=456\nMOD_LOG_CHANNEL_ID=789\nDATABASE_PATH=custom/bot.db\n"
+        "DISCORD_TOKEN=abc\nGUILD_ID=123\nOWNER_ID=456\nDATABASE_PATH=custom/bot.db\n"
         "GITHUB_OAUTH_CLIENT_ID=cid\nGITHUB_OAUTH_CLIENT_SECRET=sec\n"
         "GITHUB_OAUTH_REDIRECT_URI=http://127.0.0.1:8080/github/callback\n"
         "WEB_PORT=8080\n",
@@ -68,7 +68,6 @@ def test_valid_config_is_loaded(tmp_path) -> None:
     assert settings.discord_token == "abc"
     assert settings.guild_id == 123
     assert settings.owner_id == 456
-    assert settings.mod_log_channel_id == 789
     assert settings.database_path.name == "bot.db"
     assert settings.default_locale == "en-US"
     assert settings.github_oauth_client_id == "cid"

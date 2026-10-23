@@ -25,7 +25,6 @@ from discord import app_commands
 from discord.ext import commands
 
 from bot.core.errors import UserError
-from bot.core.translator import localized
 from bot.core.ui import info_embed, ok_embed, warn_embed
 from bot.core.web import minimal_page
 from bot.integrations.github import (
@@ -50,11 +49,6 @@ LinkMethod = Literal["auto", "web", "device"]
 @app_commands.guild_only()
 class GitHubBridgeCog(commands.Cog):
     """GitHub ↔ Discord 账号映射。"""
-
-    link_group = app_commands.Group(
-        name="link",
-        description=localized("Link your accounts", "commands.link.description"),
-    )
 
     def __init__(
         self,
@@ -86,22 +80,9 @@ class GitHubBridgeCog(commands.Cog):
         if self._session is not None and not self._session.closed:
             await self._session.close()
 
-    # ------------------------------------------------------------------ /link github
+    # ------------------------------------------------------------------ 绑定入口（/github 面板调用）
 
-    @link_group.command(
-        name="github",
-        description=localized(
-            "Link your GitHub account with a one-time code",
-            "commands.link.github.description",
-        ),
-    )
-    @app_commands.describe(
-        method=localized(
-            "How to authorise; auto picks the smoothest one that is configured",
-            "commands.link.github.param_method",
-        )
-    )
-    async def link_github(
+    async def start_binding(
         self,
         interaction: discord.Interaction,
         method: LinkMethod = "auto",
@@ -328,82 +309,7 @@ class GitHubBridgeCog(commands.Cog):
             # 交互令牌可能已经过期（比如用户很晚才完成授权）。结果已落库，日志里也有记录。
             LOGGER.warning("无法更新绑定结果（交互已过期）：user=%s", interaction.user.id)
 
-    # ------------------------------------------------------------------ /link show
-
-    @link_group.command(
-        name="show",
-        description=localized("Show the GitHub account someone linked", "commands.link.show.description"),
-    )
-    @app_commands.describe(member=localized("Whose binding to show (defaults to you)", "commands.link.param_member"))
-    async def link_show(
-        self,
-        interaction: discord.Interaction,
-        member: discord.Member | None = None,
-    ) -> None:
-        target = self._resolve_target(interaction, member)
-        account = await self.store.get(interaction.guild.id, target.id)  # type: ignore[union-attr]
-        t = self.bot.t
-        title = t(interaction, "github.show.title", member=target.display_name)
-        if account is None:
-            await interaction.response.send_message(
-                embed=info_embed(title, t(interaction, "github.show.empty")), ephemeral=True
-            )
-            return
-
-        await interaction.response.send_message(
-            embed=info_embed(
-                title,
-                t(
-                    interaction,
-                    "github.show.value",
-                    login=account.github_login,
-                    id=account.github_user_id,
-                    time=account.linked_at,
-                ),
-            ),
-            ephemeral=True,
-        )
-
-    # ------------------------------------------------------------------ /link remove
-
-    @link_group.command(
-        name="remove",
-        description=localized("Remove a GitHub binding", "commands.link.remove.description"),
-    )
-    @app_commands.describe(member=localized("Whose binding to remove (defaults to you)", "commands.link.param_member"))
-    async def link_remove(
-        self,
-        interaction: discord.Interaction,
-        member: discord.Member | None = None,
-    ) -> None:
-        target = self._resolve_target(interaction, member)
-        removed = await self.store.unlink(interaction.guild.id, target.id)  # type: ignore[union-attr]
-        if not removed:
-            raise UserError("github.remove.not_linked", member=target.display_name)
-
-        t = self.bot.t
-        await interaction.response.send_message(
-            embed=ok_embed(
-                t(interaction, "github.remove.done_title"),
-                t(interaction, "github.remove.done", member=target.display_name),
-            ),
-            ephemeral=True,
-        )
-
     # ------------------------------------------------------------------ 内部
-
-    def _resolve_target(self, interaction: discord.Interaction, member: discord.Member | None) -> discord.Member:
-        """看/改别人的绑定时要求 Manage Roles——GitHub 用户名本身也算一种个人信息。"""
-        guild = self._require_guild(interaction)
-        target = member or guild.get_member(interaction.user.id)
-        if target is None:
-            raise UserError("errors.member_not_found")
-        if target.id != interaction.user.id and not getattr(interaction.permissions, "manage_roles", False):
-            raise UserError(
-                "errors.missing_permissions",
-                permissions=self.bot.t(interaction, "permissions.manage_roles"),
-            )
-        return target
 
     def _client(self) -> GitHubClient:
         client_id = self.bot.settings.github_oauth_client_id

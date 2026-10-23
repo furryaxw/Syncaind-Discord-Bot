@@ -43,11 +43,13 @@ from bot.core.translator import localized
 from bot.core.ui import ConfirmView, ask_confirmation, error_embed, info_embed, ok_embed, send_paged_lines, warn_embed
 
 from . import rendering, schema
+from .key_link import KeyLinkError
 from .schema import FormDefinition
 from .store import (
     APPROVED,
     CLOSED,
     NEEDS_INFO,
+    ON_HOLD,
     PENDING,
     RECEIVED,
     REJECTED,
@@ -58,6 +60,7 @@ from .store import (
     build_stores,
     new_storage_key,
 )
+from .tokens import issue_form_token, issue_review_token
 
 LOGGER = logging.getLogger("bot.forms")
 
@@ -66,6 +69,7 @@ OPEN_ID = "forms:open"
 APPROVE_ID = "forms:approve"
 REJECT_ID = "forms:reject"
 NEEDS_INFO_ID = "forms:needs_info"
+WEB_REVIEW_ID = "forms:web_review"
 RESUME_PREFIX = "forms:resume:"
 
 REASON_INPUT_ID = "forms:reason"
@@ -159,6 +163,14 @@ class FormOpenView(discord.ui.View):
         await self.cog.handle_open(interaction)
 
 
+class HtmlLinkView(discord.ui.View):
+    """ephemeral 的「在浏览器打开」链接；URL 按钮不需要回调。"""
+
+    def __init__(self, *, url: str, label: str) -> None:
+        super().__init__(timeout=300)
+        self.add_item(discord.ui.Button(style=discord.ButtonStyle.link, label=label, url=url))
+
+
 class FormReviewView(discord.ui.View):
     """审核卡片上的三个按钮。同样不带状态：按消息 id 反查是哪一条申请。"""
 
@@ -175,10 +187,21 @@ class FormReviewView(discord.ui.View):
             button = discord.ui.Button(style=style, label=text.get(custom_id, custom_id), custom_id=custom_id)
             button.callback = self._make_callback(custom_id)
             self.add_item(button)
+        if cog.bot.settings.public_base_url and cog.bot.settings.form_token_secret:
+            button = discord.ui.Button(
+                style=discord.ButtonStyle.secondary,
+                label=cog.bot.i18n.t(cog.bot.settings.default_locale, "forms.html.review_button"),
+                custom_id=WEB_REVIEW_ID,
+            )
+            button.callback = self._make_callback(WEB_REVIEW_ID)
+            self.add_item(button)
 
     def _make_callback(self, custom_id: str):
         async def callback(interaction: discord.Interaction) -> None:
-            await self.cog.handle_review(interaction, custom_id)
+            if custom_id == WEB_REVIEW_ID:
+                await self.cog.handle_web_review(interaction)
+            else:
+                await self.cog.handle_review(interaction, custom_id)
 
         return callback
 
@@ -355,11 +378,16 @@ class FormsCog(commands.Cog):
 
     async def _sweep_loop(self) -> None:
         while True:
+            if not self.bot.db.is_connected:
+                return
             try:
                 await self.close_due()
                 await self.purge_stale_drafts()
             except asyncio.CancelledError:
                 raise
+            except ValueError:
+                # 数据库已关闭（进程退出/测试收尾），没有必要再记成故障。
+                return
             except Exception:
                 LOGGER.exception("表单后台任务出错，下一轮继续")
             await asyncio.sleep(SWEEP_SECONDS)
@@ -386,6 +414,33 @@ class FormsCog(commands.Cog):
 
     # ------------------------------------------------------------------ 入口：卡片按钮
 
+    async def _send_html_link(
+        self,
+        interaction: discord.Interaction,
+        publication: FormPublication,
+        definition: FormDefinition,
+    ) -> bool:
+        base_url = self.bot.settings.public_base_url
+        secret = self.bot.settings.form_token_secret
+        if not base_url or not secret:
+            return False
+        token = issue_form_token(
+            secret,
+            guild_id=publication.guild_id,
+            form_id=definition.id,
+            publication_id=publication.publication_id,
+            user_id=interaction.user.id,
+            locale=str(interaction.locale),
+        )
+        url = f"{base_url.rstrip('/')}/f?token={token}"
+        tr, _text = await self.guild_texts(publication.guild_id)
+        await interaction.response.send_message(
+            embed=info_embed(tr("forms.html.title"), tr("forms.html.body")),
+            view=HtmlLinkView(url=url, label=tr("forms.html.button")),
+            ephemeral=True,
+        )
+        return True
+
     async def handle_open(self, interaction: discord.Interaction) -> None:
         """卡片按钮入口。**不能 defer**（下一步要 ``send_modal``）。"""
         publication: FormPublication | None = None
@@ -402,6 +457,9 @@ class FormsCog(commands.Cog):
                 raise UserError("forms.closed")
             if definition.is_signup and publication.is_full:
                 raise UserError("forms.full")
+
+            if await self._send_html_link(interaction, publication, definition):
+                return
 
             step, prefill = await self._open_state(interaction, publication, definition, guild.id)
             tr, text = await self.guild_texts(guild.id)
@@ -442,6 +500,8 @@ class FormsCog(commands.Cog):
                 raise UserError("forms.not_found")
             if not publication.is_open:
                 raise UserError("forms.closed")
+            if await self._send_html_link(interaction, publication, definition):
+                return
             step, prefill = await self._open_state(interaction, publication, definition, guild.id)
             tr, text = await self.guild_texts(guild.id)
             await interaction.response.send_modal(
@@ -677,6 +737,38 @@ class FormsCog(commands.Cog):
 
     # ------------------------------------------------------------------ 审核
 
+    async def handle_web_review(self, interaction: discord.Interaction) -> None:
+        try:
+            message = getattr(interaction, "message", None)
+            submission = await self.store.submissions.get_by_review_message(getattr(message, "id", 0))
+            if submission is None:
+                raise UserError("forms.review.not_found")
+            definition = self._definition(submission.form_id)
+            guild = self._require_guild(interaction)
+            await self._require_reviewer(interaction, definition, guild)
+            secret = self.bot.settings.form_token_secret
+            base_url = self.bot.settings.public_base_url
+            if not secret or not base_url:
+                raise UserError("forms.key.unavailable")
+            token = issue_review_token(
+                secret,
+                guild_id=guild.id,
+                reviewer_id=interaction.user.id,
+                form_id=definition.id,
+                submission_id=submission.submission_id,
+            )
+            tr, _text = await self.guild_texts(guild.id)
+            await interaction.response.send_message(
+                embed=info_embed(tr("forms.html.review_title"), tr("forms.html.review_body")),
+                view=HtmlLinkView(
+                    url=f"{base_url.rstrip('/')}/review?token={token}",
+                    label=tr("forms.html.review_button"),
+                ),
+                ephemeral=True,
+            )
+        except UserError as exc:
+            await self._respond_error(interaction, exc)
+
     async def handle_review(self, interaction: discord.Interaction, decision: str) -> None:
         message = getattr(interaction, "message", None)
         submission = await self.store.submissions.get_by_review_message(getattr(message, "id", 0))
@@ -839,6 +931,36 @@ class FormsCog(commands.Cog):
             except discord.HTTPException as exc:
                 raise UserError("forms.action.failed", error=str(exc)) from exc
 
+        if definition.grant_key > 0:
+            linker = self.bot.services.get("form_keys")
+            if linker is None:
+                raise UserError("forms.key.unavailable")
+            try:
+                await linker.issue(guild, definition, binding, submission)
+            except KeyLinkError as exc:
+                if exc.key != "forms.key.no_stock":
+                    raise
+                await self.store.submissions.set_decision(
+                    submission.submission_id,
+                    status=ON_HOLD,
+                    reviewer_id=interaction.user.id,
+                    reason=None,
+                )
+                updated = await self.store.submissions.get(submission.submission_id)
+                if updated is not None:
+                    await self._update_review_card(guild, definition, updated, tr=tr, text=text)
+                    await self._dm_applicant(
+                        guild,
+                        updated,
+                        tr=tr,
+                        key="forms.dm.held",
+                        form=text(definition.title),
+                    )
+                await interaction.edit_original_response(
+                    embed=ok_embed(tr("forms.held.title"), tr("forms.held.body")),
+                )
+                return
+
         existing = await self.store.submissions.get(submission.submission_id)
         current_reason = existing.decision_reason if existing is not None else None
         await self.store.submissions.set_decision(
@@ -906,6 +1028,46 @@ class FormsCog(commands.Cog):
         await self.store.submissions.set_review_message(
             submission.submission_id, channel_id=channel.id, message_id=message.id
         )
+
+    async def resume_held(self, guild: discord.Guild, definition: FormDefinition) -> tuple[int, int]:
+        """按暂缓时间 FIFO 补发 key；库存不足时停在第一个失败项。"""
+        linker = self.bot.services.get("form_keys")
+        if linker is None:
+            raise UserError("forms.key.unavailable")
+        binding = await self.store.bindings.get(guild.id, definition.id)
+        held = await self.store.submissions.list_for_form(
+            guild.id, definition.id, status=ON_HOLD, limit=100
+        )
+        processed = 0
+        for submission in reversed(held):
+            try:
+                await linker.issue(guild, definition, binding, submission)
+            except KeyLinkError as exc:
+                if exc.key == "forms.key.no_stock":
+                    break
+                raise
+            await self.store.submissions.set_decision(
+                submission.submission_id,
+                status=APPROVED,
+                reviewer_id=self.bot.user.id if self.bot.user is not None else 0,
+                reason=None,
+            )
+            updated = await self.store.submissions.get(submission.submission_id)
+            tr, text = await self.guild_texts(guild.id)
+            if updated is not None:
+                await self._update_review_card(guild, definition, updated, tr=tr, text=text)
+                await self._dm_applicant(
+                    guild,
+                    updated,
+                    tr=tr,
+                    key="forms.dm.approved",
+                    form=text(definition.title),
+                )
+            processed += 1
+        remaining = await self.store.submissions.count_for_form(
+            guild.id, definition.id, status=ON_HOLD
+        )
+        return processed, remaining
 
     async def _update_review_card(
         self,
@@ -1209,6 +1371,27 @@ class FormsCog(commands.Cog):
         )
 
     @form_group.command(
+        name="resume",
+        description=localized("Resume held submissions (key restock)", "commands.form.resume.description"),
+        extras={"permissions": ("manage_guild",)},
+    )
+    @app_commands.autocomplete(form=form_autocomplete)
+    @app_commands.describe(form=localized("Form id", "commands.form.param_form"))
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def form_resume(self, interaction: discord.Interaction, form: str) -> None:
+        definition = self._definition(form)
+        guild = self._require_guild(interaction)
+        await interaction.response.defer(ephemeral=True)
+        processed, remaining = await self.resume_held(guild, definition)
+        tr = await self.guild_tr(guild.id)
+        await interaction.edit_original_response(
+            embed=ok_embed(
+                tr("forms.resume.title"),
+                tr("forms.resume.body", processed=processed, remaining=remaining),
+            )
+        )
+
+    @form_group.command(
         name="bind",
         description=localized(
             "Bind the channels and roles a form needs (omitted items stay unchanged)",
@@ -1223,6 +1406,7 @@ class FormsCog(commands.Cog):
         reviewer_role=localized("Members with this role may review", "commands.form.param_reviewer_role"),
         notify_channel=localized("Where new submissions are announced", "commands.form.param_notify_channel"),
         grant_role=localized("Role handed out when an application is approved", "commands.form.param_grant_role"),
+        drop=localized("Key drop code linked to this form", "commands.form.param_drop"),
     )
     @app_commands.checks.has_permissions(manage_guild=True)
     async def form_bind(
@@ -1233,6 +1417,7 @@ class FormsCog(commands.Cog):
         reviewer_role: discord.Role | None = None,
         notify_channel: discord.TextChannel | None = None,
         grant_role: discord.Role | None = None,
+        drop: str | None = None,
     ) -> None:
         definition = self._definition(form)
         guild = self._require_guild(interaction)
@@ -1245,6 +1430,16 @@ class FormsCog(commands.Cog):
             changes["notify_channel_id"] = notify_channel.id
         if grant_role is not None:
             changes["grant_role_id"] = grant_role.id
+        if drop is not None:
+            keys = self.bot.services.get("keys")
+            if keys is None:
+                raise UserError("forms.key.unavailable")
+            key_drop = await keys.drop_by_code(guild.id, drop.strip())
+            if key_drop is None:
+                raise UserError("forms.key.no_drop")
+            if key_drop.mode != "fcfs":
+                raise UserError("forms.key.not_fcfs")
+            changes["drop_id"] = key_drop.id
         if changes:
             await self.store.bindings.update(guild.id, definition.id, **changes)
         binding = await self.store.bindings.get(guild.id, definition.id)

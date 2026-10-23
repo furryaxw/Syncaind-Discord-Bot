@@ -77,7 +77,7 @@ DESCRIPTION_LIMIT = 100
 OPTION_LIMIT = 100
 FORM_DESCRIPTION_LIMIT = 500
 
-FORM_KEYS = frozenset({"id", "mode", "title", "description", "fields", "actions", "allow_multiple"})
+FORM_KEYS = frozenset({"id", "mode", "title", "description", "fields", "actions", "allow_multiple", "grant_key"})
 FORM_REQUIRED_KEYS = frozenset({"id", "mode", "title", "description", "fields"})
 FIELD_KEYS = frozenset({"key", "kind", "label", "description", "required", "options", "max_files"})
 FIELD_REQUIRED_KEYS = frozenset({"key", "kind", "label"})
@@ -143,6 +143,8 @@ class FormDefinition:
     actions: tuple[str, ...] = ()
     # 收集类默认一人一份；允许重复提交的表单（例如多条建议）把它设成 true。
     allow_multiple: bool = False
+    # 每次提交发几枚 key；0 = 不发。上限 50（单条私信长度）。
+    grant_key: int = 0
 
     @property
     def is_apply(self) -> bool:
@@ -217,6 +219,13 @@ def parse_definition(raw: Any, *, source: str, locales: tuple[str, ...] = ()) ->
     allow_multiple = raw.get("allow_multiple", False)
     if not isinstance(allow_multiple, bool):
         raise DefinitionError(f"{source}：allow_multiple 必须是 true 或 false")
+    grant_key = raw.get("grant_key", 0)
+    if not isinstance(grant_key, int) or isinstance(grant_key, bool):
+        raise DefinitionError(f"{source}：grant_key 必须是整数")
+    if grant_key < 0 or grant_key > 50:
+        raise DefinitionError(f"{source}：grant_key 必须在 0–50 之间")
+    if grant_key > 0 and allow_multiple:
+        raise DefinitionError(f"{source}：grant_key 与 allow_multiple 不能同时启用")
 
     return FormDefinition(
         id=form_id,
@@ -226,6 +235,7 @@ def parse_definition(raw: Any, *, source: str, locales: tuple[str, ...] = ()) ->
         fields=fields,
         actions=tuple(actions),
         allow_multiple=allow_multiple,
+        grant_key=grant_key,
     )
 
 

@@ -24,6 +24,7 @@ CLOSED = "closed"
 # 回到 pending。收集与报名类提交即 received。
 PENDING = "pending"
 NEEDS_INFO = "needs_info"
+ON_HOLD = "on_hold"
 APPROVED = "approved"
 REJECTED = "rejected"
 RECEIVED = "received"
@@ -56,13 +57,20 @@ class FormBinding:
     reviewer_role_id: int | None = None
     notify_channel_id: int | None = None
     grant_role_id: int | None = None
+    drop_id: int | None = None
     updated_at: str = ""
 
     @property
     def is_configured(self) -> bool:
         return any(
             item is not None
-            for item in (self.review_channel_id, self.reviewer_role_id, self.notify_channel_id, self.grant_role_id)
+            for item in (
+                self.review_channel_id,
+                self.reviewer_role_id,
+                self.notify_channel_id,
+                self.grant_role_id,
+                self.drop_id,
+            )
         )
 
 
@@ -123,13 +131,13 @@ class FormSubmission:
 
     @property
     def is_pending(self) -> bool:
-        return self.status in (PENDING, NEEDS_INFO)
+        return self.status in (PENDING, NEEDS_INFO, ON_HOLD)
 
 
 class FormBindingStore:
     """每个表单在服务器上的绑定。没有行 = 全都没绑，不写库。"""
 
-    BINDABLE = ("review_channel_id", "reviewer_role_id", "notify_channel_id", "grant_role_id")
+    BINDABLE = ("review_channel_id", "reviewer_role_id", "notify_channel_id", "grant_role_id", "drop_id")
 
     def __init__(self, db: Database, *, logger: logging.Logger | None = None) -> None:
         self._db = db
@@ -149,6 +157,7 @@ class FormBindingStore:
             reviewer_role_id=_optional_int(row["reviewer_role_id"]),
             notify_channel_id=_optional_int(row["notify_channel_id"]),
             grant_role_id=_optional_int(row["grant_role_id"]),
+            drop_id=_optional_int(row["drop_id"]),
             updated_at=str(row["updated_at"]),
         )
 
@@ -163,19 +172,21 @@ class FormBindingStore:
             "reviewer_role_id": current.reviewer_role_id,
             "notify_channel_id": current.notify_channel_id,
             "grant_role_id": current.grant_role_id,
+            "drop_id": current.drop_id,
         }
         merged.update(changes)
         await self._db.execute(
             """
             INSERT INTO form_bindings (
                 guild_id, form_id, review_channel_id, reviewer_role_id,
-                notify_channel_id, grant_role_id, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                notify_channel_id, grant_role_id, drop_id, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (guild_id, form_id) DO UPDATE SET
                 review_channel_id = excluded.review_channel_id,
                 reviewer_role_id = excluded.reviewer_role_id,
                 notify_channel_id = excluded.notify_channel_id,
                 grant_role_id = excluded.grant_role_id,
+                drop_id = excluded.drop_id,
                 updated_at = excluded.updated_at
             """,
             (
@@ -185,6 +196,7 @@ class FormBindingStore:
                 merged["reviewer_role_id"],
                 merged["notify_channel_id"],
                 merged["grant_role_id"],
+                merged["drop_id"],
                 utcnow_iso(),
             ),
         )

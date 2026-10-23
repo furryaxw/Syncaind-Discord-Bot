@@ -28,6 +28,15 @@
   "feed.sync.nothing": "**{repo}**：没有比游标更新的 release。",
   "feed.sync.title": "同步完成",
   "feed.truncated": "*（正文过长已截断，完整内容见标题上的链接）*",
+  "commands.feed.panel_description": "GitHub release 订阅面板：列表、添加、删除、同步",
+  "feed.panel.title": "GitHub release 订阅",
+  "feed.panel.body": "当前有 {count} 个仓库订阅。",
+  "feed.panel.list": "订阅列表",
+  "feed.panel.add": "添加仓库",
+  "feed.panel.remove": "删除订阅",
+  "feed.panel.sync": "手动同步",
+  "feed.panel.repo": "仓库（owner/name 或链接）",
+  "feed.panel.not_yours": "这个面板不是给你的。",
   "modules.github_feed.description": "把 GitHub release 说明按仓库推送到指定帖子或频道（绑定即回填历史）。",
   "modules.github_feed.name": "GitHub release 推送"
 }

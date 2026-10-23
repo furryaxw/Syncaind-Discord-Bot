@@ -47,12 +47,12 @@ def http_like(status: int, reason: str = "reason") -> SimpleNamespace:
 
 
 def test_user_error_keeps_key_and_placeholders() -> None:
-    error = UserError("errors.hierarchy.target_is_owner", target="@someone")
+    error = UserError("errors.hierarchy.role_above_bot", role="@someone")
 
     key, kwargs, unexpected = _classify(error)
 
-    assert key == "errors.hierarchy.target_is_owner"
-    assert kwargs == {"target": "@someone"}
+    assert key == "errors.hierarchy.role_above_bot"
+    assert kwargs == {"role": "@someone"}
     assert unexpected is False
 
 
@@ -98,7 +98,7 @@ async def test_handler_replies_ephemerally(i18n: I18n, caplog: pytest.LogCapture
     with caplog.at_level(logging.ERROR):
         await handle_app_command_error(
             interaction,  # type: ignore[arg-type]
-            UserError("errors.hierarchy.actor_role_too_low", target="@someone"),
+            UserError("errors.missing_permissions", permissions="@someone"),
             i18n=i18n,
             logger=logging.getLogger("test"),
         )

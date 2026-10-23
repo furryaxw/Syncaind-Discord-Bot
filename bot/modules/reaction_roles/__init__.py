@@ -18,7 +18,11 @@ MODULE_META = ModuleMeta(
 
 async def setup(bot: Any) -> None:
     from .cog import ReactionRolesCog
+    from .panel import ReactionRolePanelCog
     from .service import ReactionRoleService
 
     service = ReactionRoleService(bot.db, logger=bot.log.getChild("reaction_roles"))
-    await bot.add_cog(ReactionRolesCog(bot, service))
+    cog = ReactionRolesCog(bot, service)
+    await bot.add_cog(cog)
+    bot.tree.remove_command("reactionrole")
+    await bot.add_cog(ReactionRolePanelCog(bot, cog))

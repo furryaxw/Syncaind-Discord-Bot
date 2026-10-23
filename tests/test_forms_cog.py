@@ -35,7 +35,7 @@ from bot.modules.forms.store import (
     new_storage_key,
 )
 from tests.conftest import GUILD_ID
-from tests.discord_fakes import MODERATOR_ID, FakeInteraction, add_message, run_command, setup_bot
+from tests.discord_fakes import MODERATOR_ID, FakeInteraction, add_message, setup_bot
 from tests.forms_fakes import (
     APPLICANT_ID,
     NOTIFY_CHANNEL_ID,
@@ -90,9 +90,8 @@ async def bind_all(forms, world, *, grant_role=True, reviewer=True, notify=True)
 
 async def publish(forms, world, *, form=APPLICATION, channel=None, **kwargs):
     interaction = FakeInteraction(user=world.reviewer, guild=world.guild, channel=world.apply_channel)
-    await run_command(
-        forms.bot,
-        "form post",
+    await forms.form_post.callback(
+        forms,
         interaction,
         form=form,
         channel=channel or world.apply_channel,
@@ -138,7 +137,7 @@ async def test_post_refuses_an_application_without_a_review_channel(cog, world) 
     interaction = FakeInteraction(user=world.reviewer, guild=world.guild)
 
     with pytest.raises(UserError) as excinfo:
-        await run_command(cog.bot, "form post", interaction, form=APPLICATION, channel=world.apply_channel)
+        await cog.form_post.callback(cog, interaction, form=APPLICATION, channel=world.apply_channel)
 
     assert excinfo.value.key == "forms.bind.review_channel_missing"
 
@@ -148,7 +147,7 @@ async def test_post_refuses_a_missing_grant_role(cog, world) -> None:
     interaction = FakeInteraction(user=world.reviewer, guild=world.guild)
 
     with pytest.raises(UserError) as excinfo:
-        await run_command(cog.bot, "form post", interaction, form=APPLICATION, channel=world.apply_channel)
+        await cog.form_post.callback(cog, interaction, form=APPLICATION, channel=world.apply_channel)
 
     assert excinfo.value.key == "forms.bind.grant_role_missing"
 
@@ -157,7 +156,7 @@ async def test_post_rejects_an_unknown_form(cog, world) -> None:
     interaction = FakeInteraction(user=world.reviewer, guild=world.guild)
 
     with pytest.raises(UserError) as excinfo:
-        await run_command(cog.bot, "form post", interaction, form="nope", channel=world.apply_channel)
+        await cog.form_post.callback(cog, interaction, form="nope", channel=world.apply_channel)
 
     assert excinfo.value.key == "forms.unknown_form"
 
@@ -167,7 +166,7 @@ async def test_post_rejects_a_capacity_on_a_non_signup_form(cog, world) -> None:
     interaction = FakeInteraction(user=world.reviewer, guild=world.guild)
 
     with pytest.raises(UserError) as excinfo:
-        await run_command(cog.bot, "form post", interaction, form=APPLICATION, capacity=3)
+        await cog.form_post.callback(cog, interaction, form=APPLICATION, capacity=3)
 
     assert excinfo.value.key == "forms.capacity_only_signup"
 
@@ -187,15 +186,14 @@ async def test_post_sends_a_card_and_records_its_message(cog, world) -> None:
 async def test_bind_updates_only_what_is_given(cog, world) -> None:
     interaction = FakeInteraction(user=world.reviewer, guild=world.guild)
 
-    await run_command(
-        cog.bot,
-        "form bind",
+    await cog.form_bind.callback(
+        cog,
         interaction,
         form=APPLICATION,
         review_channel=world.review_channel,
         grant_role=world.grant_role,
     )
-    await run_command(cog.bot, "form bind", interaction, form=APPLICATION, reviewer_role=world.review_role)
+    await cog.form_bind.callback(cog, interaction, form=APPLICATION, reviewer_role=world.review_role)
 
     binding = await cog.store.bindings.get(GUILD_ID, APPLICATION)
     assert binding.review_channel_id == REVIEW_CHANNEL_ID
@@ -207,7 +205,7 @@ async def test_list_shows_every_form_and_its_bindings(cog, world) -> None:
     await bind_all(cog, world)
     interaction = FakeInteraction(user=world.reviewer, guild=world.guild)
 
-    await run_command(cog.bot, "form list", interaction)
+    await cog.form_list.callback(cog, interaction)
 
     embed = interaction.response._messages[-1]["embed"]
     names = {field.name for field in embed.fields}
@@ -227,8 +225,8 @@ async def test_results_and_export(cog, world) -> None:
     )
     interaction = FakeInteraction(user=world.reviewer, guild=world.guild)
 
-    await run_command(cog.bot, "form results", interaction, form="feedback")
-    await run_command(cog.bot, "form export", interaction, form="feedback")
+    await cog.form_results.callback(cog, interaction, form="feedback")
+    await cog.form_export.callback(cog, interaction, form="feedback")
 
     results_embed = interaction.response._messages[-2]["embed"]
     assert "模组" in results_embed.description
@@ -251,7 +249,7 @@ async def test_submission_shows_the_full_answer_in_discord(cog, world) -> None:
     )
     interaction = FakeInteraction(user=world.reviewer, guild=world.guild)
 
-    await run_command(cog.bot, "form submission", interaction, submission_id=submission.submission_id)
+    await cog.form_submission.callback(cog, interaction, submission_id=submission.submission_id)
 
     embed = interaction.response._messages[-1]["embed"]
     assert embed.title == f"提交 `#{submission.submission_id}`　意见收集"
@@ -273,7 +271,7 @@ async def test_submission_pages_a_very_long_answer(cog, world) -> None:
     )
     interaction = FakeInteraction(user=world.reviewer, guild=world.guild)
 
-    await run_command(cog.bot, "form submission", interaction, submission_id=submission.submission_id)
+    await cog.form_submission.callback(cog, interaction, submission_id=submission.submission_id)
 
     last = interaction.response._messages[-1]
     assert "view" in last, "一页装不下的答案必须给翻页按钮"
@@ -284,7 +282,7 @@ async def test_submission_refuses_an_unknown_id(cog, world) -> None:
     interaction = FakeInteraction(user=world.reviewer, guild=world.guild)
 
     with pytest.raises(UserError) as excinfo:
-        await run_command(cog.bot, "form submission", interaction, submission_id=9999)
+        await cog.form_submission.callback(cog, interaction, submission_id=9999)
 
     assert excinfo.value.key == "forms.submission.not_found"
 
@@ -293,7 +291,7 @@ async def test_export_refuses_when_there_is_nothing(cog, world) -> None:
     interaction = FakeInteraction(user=world.reviewer, guild=world.guild)
 
     with pytest.raises(UserError) as excinfo:
-        await run_command(cog.bot, "form export", interaction, form="feedback")
+        await cog.form_export.callback(cog, interaction, form="feedback")
 
     assert excinfo.value.key == "forms.export.empty"
 
@@ -304,7 +302,7 @@ async def test_close_marks_the_publication_closed(cog, world) -> None:
     card = world.apply_channel._messages[publication.message_id]
     interaction = FakeInteraction(user=world.reviewer, guild=world.guild)
 
-    await run_command(cog.bot, "form close", interaction, publication=publication.publication_id)
+    await cog.form_close.callback(cog, interaction, publication=publication.publication_id)
 
     latest = await cog.store.publications.get(publication.publication_id)
     assert latest is not None and latest.status == CLOSED
@@ -720,6 +718,24 @@ async def test_attachment_directories_refuse_anything_but_our_own_keys(cog) -> N
     for bad in ("../../etc", "not-a-key", ""):
         with pytest.raises(ValueError):
             cog._dir_for(bad)
+
+
+async def test_the_command_tree_exposes_only_the_form_panel(cog) -> None:
+    command = cog.bot.tree.get_command("form")
+    assert command is not None
+    assert not hasattr(command, "commands"), "旧子命令组不应再注册"
+
+
+async def test_the_panel_shows_the_admin_overview(cog, world) -> None:
+    panel = cog.bot.get_cog("FormPanelCog")
+    assert panel is not None
+    interaction = FakeInteraction(user=world.reviewer, guild=world.guild)
+
+    await panel.form.callback(panel, interaction)
+
+    embed = interaction.response._messages[-1]["embed"]
+    assert embed.title == "表单"
+    assert "表单" in embed.description
 
 
 async def test_the_card_buttons_are_registered_as_persistent_views(cog) -> None:

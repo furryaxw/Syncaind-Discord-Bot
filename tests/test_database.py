@@ -96,26 +96,16 @@ async def test_transaction_commits_on_success(db: Database) -> None:
 async def test_settings_defaults_when_no_row(settings_store: GuildSettingsStore) -> None:
     settings = await settings_store.get(GUILD_ID)
 
-    assert settings.warn_threshold == 3
-    assert settings.warn_action == "timeout"
-    assert settings.warn_timeout_minutes == 60
-    assert settings.mod_log_channel_id is None
-
-
-async def test_settings_default_mod_log_channel_comes_from_env(db: Database) -> None:
-    store = GuildSettingsStore(db, default_mod_log_channel_id=999)
-
-    assert (await store.get(GUILD_ID)).mod_log_channel_id == 999
+    assert settings.locale is None
+    assert settings.updated_at == ""
 
 
 async def test_settings_update_round_trip(settings_store: GuildSettingsStore) -> None:
-    await settings_store.update(GUILD_ID, warn_threshold=5, mod_log_channel_id=42)
+    await settings_store.update(GUILD_ID, locale="zh-CN")
 
     stored = await settings_store.get(GUILD_ID)
 
-    assert stored.warn_threshold == 5
-    assert stored.mod_log_channel_id == 42
-    assert stored.warn_action == "timeout"
+    assert stored.locale == "zh-CN"
     assert stored.updated_at != ""
 
 
@@ -124,18 +114,13 @@ async def test_settings_update_rejects_unknown_field(settings_store: GuildSettin
         await settings_store.update(GUILD_ID, nope=1)
 
 
-async def test_settings_update_rejects_invalid_warn_action(settings_store: GuildSettingsStore) -> None:
-    with pytest.raises(ValueError):
-        await settings_store.update(GUILD_ID, warn_action="explode")
-
-
 async def test_module_state_overrides_round_trip(module_state_store: ModuleStateStore) -> None:
     assert await module_state_store.overrides(GUILD_ID) == {}
 
     await module_state_store.set_enabled(GUILD_ID, "tools", False)
-    await module_state_store.set_enabled(GUILD_ID, "moderation", True)
+    await module_state_store.set_enabled(GUILD_ID, "forms", True)
 
-    assert await module_state_store.overrides(GUILD_ID) == {"tools": False, "moderation": True}
+    assert await module_state_store.overrides(GUILD_ID) == {"tools": False, "forms": True}
 
     await module_state_store.set_enabled(GUILD_ID, "tools", True)
 

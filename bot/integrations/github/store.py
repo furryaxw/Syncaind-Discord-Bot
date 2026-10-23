@@ -100,6 +100,13 @@ class GitHubAccountStore:
         )
         return _to_account(row) if row is not None else None
 
+    async def by_github_id(self, guild_id: int, github_user_id: int) -> GitHubAccount | None:
+        row = await self._db.fetchone(
+            "SELECT * FROM github_accounts WHERE guild_id = ? AND github_user_id = ?",
+            (guild_id, github_user_id),
+        )
+        return _to_account(row) if row is not None else None
+
     async def all(self, guild_id: int) -> list[GitHubAccount]:
         rows = await self._db.fetchall(
             "SELECT * FROM github_accounts WHERE guild_id = ? ORDER BY linked_at",
